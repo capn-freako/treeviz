@@ -1,0 +1,38 @@
+name: DivideAndConquer
+version: 0.0.1
+cabal-version: >=1.2
+build-type: Simple
+license: AllRightsReserved
+license-file: ""
+copyright: Copyright (c) 2013 David Banas; all rights reserved World wide.
+maintainer: capn.freako@gmail.com
+stability: Experimental
+synopsis: Work/depth analysis of divide and conquer algorithms
+description: This Haskell package provides some tools for analyzing the work/depth
+             of different divide and conquer algorithms.
+category: Algorithms
+author: David B. Banas
+data-dir: ""
+ 
+library
+    build-depends: QuickCheck -any, base -any, containers -any
+    exposed-modules: Data.Tree.LogTree
+    exposed: True
+    buildable: True
+    cpp-options: -DMAIN_FUNCTION=testMain
+    hs-source-dirs: src
+ 
+executable DivideAndConquer
+    build-depends: QuickCheck -any, base -any, containers -any
+    main-is: Main.hs
+    buildable: True
+    hs-source-dirs: src
+    other-modules: Data.Tree.LogTree
+ 
+test-suite test-DivideAndConquer
+    build-depends: QuickCheck -any, base -any, containers -any
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    buildable: True
+    cpp-options: -DMAIN_FUNCTION=testMain
+    hs-source-dirs: src
