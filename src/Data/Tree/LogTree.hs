@@ -15,7 +15,7 @@
 -----------------------------------------------------------------------------
 
 module Data.Tree.LogTree (
-    radix2DITTree, showLogTree, getLevels, getFlatten, doDrawTree
+    radix2DITTree, showLogTree, dotLogTree, getLevels, getFlatten, doDrawTree
 ) where
 
 import Data.Complex
@@ -149,48 +149,57 @@ dotLogTree :: (Show a) => Either String (LogTree a) -> String
 dotLogTree (Left msg)   = msg
 dotLogTree (Right tree) =
     "digraph g { \n \
-        graph [ \n \
-            rankdir = \"RL\" \n \
-        ]; \n \
-        node [ \n \
-            fontsize = \"16\" \n \
-            shape = \"ellipse\" \n \
-        ]; \n \
-        edge [ \n \
-        ];\n"
-  ++ dotLogTreeRecurse tree
+     \   graph [ \n \
+     \       rankdir = \"RL\" \n \
+     \       splines = \"false\" \n \
+     \   ]; \n \
+     \   node [ \n \
+     \       fontsize = \"16\" \n \
+     \       shape = \"ellipse\" \n \
+     \   ]; \n \
+     \   edge [ \n \
+     \   ];\n"
+  ++ dotLogTreeRecurse "0" tree
   ++ "}\n"
 
-dotLogTreeRecurse :: (Show a) => LogTree a -> String
-dotLogTreeRecurse (Node (Just x,  [],                   Nothing) [])     = -- leaf
-    show x
-dotLogTreeRecurse (Node (Nothing, [x_offset, y_offset], Nothing) [x, y]) = -- penultimate node
-    map
-    "\"node0\" [label = \"<f0> 0x10ba8| <f1>\" shape = \"record\"];"
-    ++ "["
-    ++ (show x_offset) ++ "(" ++ (show $ getValue x) ++ ")" ++ " + "
-    ++ (show y_offset) ++ "(" ++ (show $ getValue y) ++ ")"
-    ++ ", "
-    ++ (show x_offset) ++ "(" ++ (show $ getValue x) ++ ")" ++ " - "
-    ++ (show y_offset) ++ "(" ++ (show $ getValue y) ++ ")"
-    ++ "]"
-dotLogTreeRecurse indent (Node (Nothing, [l_offset, r_offset], Just skip) [l, r]) = -- ordinary node
-    indent
-    ++ concat [ "(" ++ "\n"
-             ++ dotLogTreeRecurse (indent ++ "  ") l ++ "(" ++ show k ++ ")" ++ "+"
-             ++ "W(" ++ show (2 * (num_elems)) ++ ", " ++ show k ++ ")" ++ " * "
-             ++ dotLogTreeRecurse (indent ++ "  ") r ++ "(" ++ show k ++ ")"
-             ++ "), "
-         | k <- [0..(num_elems)]
-       ]
-    ++ concat [ "(" ++ "\n"
-             ++ dotLogTreeRecurse (indent ++ "  ") l ++ "(" ++ show k ++ ")" ++ "-"
-             ++ "W(" ++ show (2 * (num_elems)) ++ ", " ++ show k ++ ")" ++ " * "
-             ++ dotLogTreeRecurse (indent ++ "  ") r ++ "(" ++ show k ++ ")"
-             ++ "), "
-         | k <- [0..(num_elems)]
-       ]
-    where num_elems = length $ flatten l
+dotLogTreeRecurse :: (Show a) => String -> LogTree a -> String
+dotLogTreeRecurse nodeID (Node (Just x, _, _) _     ) = -- leaf
+    -- Draw myself.
+    "\"node" ++ nodeID ++ "\" [label = \"<f0> "
+    ++ (show x)
+    ++ "\" shape = \"record\"];\n"
+dotLogTreeRecurse nodeID (Node _              [l, r]) = -- ordinary node
+    -- Draw myself.
+    "\"node" ++ nodeID ++ "\" [label = \"<f0>"
+    ++ (concat [" | <f" ++ (show k) ++ ">"| k <- [1..(num_elems - 1)]])
+    ++ "\" shape = \"record\"];\n"
+    -- Draw children.
+    ++ (dotLogTreeRecurse lID l)
+    ++ (dotLogTreeRecurse rID r)
+    -- Draw my connections to my children.
+    ++ (unlines [ "\"node" ++ nodeID ++ "\":f" ++ (show k) ++ " -> \"node"
+                  ++ lID ++ "\":f" ++ (show (k `mod` num_child_elems))
+                  ++ ":e"
+                  ++ " [id = \"" ++ nodeID ++ lID ++ (show k) ++ "\""
+                  ++ ", decorate = \"true\""
+                  ++ ", dir = \"back\"];\n"
+                  ++ "\"node" ++ nodeID ++ "\":f" ++ (show k) ++ " -> \"node"
+                  ++ rID ++ "\":f" ++ (show (k `mod` num_child_elems))
+                  ++ ":e"
+                  ++ " [id = \"" ++ nodeID ++ rID ++ (show k) ++ "\""
+                  ++ ", sametail = \"" ++ nodeID ++ lID ++ (show k) ++ "\""
+                  ++ ", decorate = \"true\""
+                  ++ ", dir = \"back\""
+                  ++ ", label = \"" ++ (show ((-1) ^ (k `div` num_child_elems)))
+                  ++ " * W(" ++ (show num_elems) ++ ", "
+                  ++ (show (k `mod` num_child_elems)) ++ ")\"];\n"
+                  | k <- [0..(num_elems - 1)]
+                ]
+       )
+    where num_elems       = (2 * (length $ head $ reverse $ levels l))
+          num_child_elems = (length $ head $ reverse $ levels l)
+          lID             = nodeID ++ "0"
+          rID             = nodeID ++ "1"
 
 getValue :: LogTree a -> Maybe a
 getValue (Node (x, _, _) _) = x
