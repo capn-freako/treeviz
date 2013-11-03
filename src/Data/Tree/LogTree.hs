@@ -146,21 +146,24 @@ showLogTreeRecurse indent (Node (Nothing, [l_offset, r_offset], Just skip) [l, r
 -- Example)
 --   dotLogTree $ radix2DITTree [...]
 dotLogTree :: (Show a) => Either String (LogTree a) -> String
-dotLogTree (Left msg)   = msg
-dotLogTree (Right tree) =
-    "digraph g { \n \
-     \   graph [ \n \
-     \       rankdir = \"RL\" \n \
-     \       splines = \"false\" \n \
-     \   ]; \n \
-     \   node [ \n \
-     \       fontsize = \"16\" \n \
-     \       shape = \"ellipse\" \n \
-     \   ]; \n \
-     \   edge [ \n \
-     \   ];\n"
-  ++ dotLogTreeRecurse "0" tree
-  ++ "}\n"
+dotLogTree (Left msg)   = header
+ ++ "\"node0\" [label = \"" ++ msg ++ "\"]\n"
+ ++ "}\n"
+dotLogTree (Right tree) = header
+ ++ dotLogTreeRecurse "0" tree
+ ++ "}\n"
+
+header = "digraph g { \n \
+ \   graph [ \n \
+ \       rankdir = \"RL\" \n \
+ \       splines = \"false\" \n \
+ \   ]; \n \
+ \   node [ \n \
+ \       fontsize = \"16\" \n \
+ \       shape = \"ellipse\" \n \
+ \   ]; \n \
+ \   edge [ \n \
+ \   ];\n"
 
 dotLogTreeRecurse :: (Show a) => String -> LogTree a -> String
 dotLogTreeRecurse nodeID (Node (Just x, _, _) _     ) = -- leaf
