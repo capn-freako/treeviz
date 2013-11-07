@@ -1,4 +1,7 @@
-{-# LANGUAGE StandaloneDeriving, FlexibleContexts, UndecidableInstances #-}
+{-# LANGUAGE StandaloneDeriving
+           , FlexibleContexts
+           , UndecidableInstances
+           , ParallelListComp #-}
 
 -----------------------------------------------------------------------------
 --
@@ -150,7 +153,7 @@ dotLogTree (Left msg)   = header
  ++ "\"node0\" [label = \"" ++ msg ++ "\"]\n"
  ++ "}\n"
 dotLogTree (Right tree) = header
- ++ dotLogTreeRecurse "0" tree
+ ++ dotLogTreeRecurse False "0" tree
  ++ "}\n"
 
 header = "digraph g { \n \
@@ -163,22 +166,24 @@ header = "digraph g { \n \
  \       shape = \"ellipse\" \n \
  \   ]; \n \
  \   edge [ \n \
- \   ];\n"
+ \   ];\n \
+ \   ranksep = 1.5 \
+ \   nodesep = 0"
 
-dotLogTreeRecurse :: (Show a) => String -> LogTree a -> String
-dotLogTreeRecurse nodeID (Node (Just x, _, _) _     ) = -- leaf
+dotLogTreeRecurse :: (Show a) => Bool -> String -> LogTree a -> String
+dotLogTreeRecurse _ nodeID (Node (Just x, _, _) _     )           = -- leaf
     -- Draw myself.
     "\"node" ++ nodeID ++ "\" [label = \"<f0> "
     ++ (show x)
     ++ "\" shape = \"record\"];\n"
-dotLogTreeRecurse nodeID (Node _              [l, r]) = -- ordinary node
+dotLogTreeRecurse drawTwiddle nodeID (Node _              [l, r]) = -- ordinary node
     -- Draw myself.
     "\"node" ++ nodeID ++ "\" [label = \"<f0>"
     ++ (concat [" | <f" ++ (show k) ++ ">"| k <- [1..(num_elems - 1)]])
     ++ "\" shape = \"record\"];\n"
     -- Draw children.
-    ++ (dotLogTreeRecurse lID l)
-    ++ (dotLogTreeRecurse rID r)
+    ++ (dotLogTreeRecurse False lID l)
+    ++ (dotLogTreeRecurse True  rID r)
     -- Draw my connections to my children.
     ++ (unlines [ "\"node" ++ nodeID ++ "\":f" ++ (show k) ++ " -> \"node"
                   ++ lID ++ "\":f" ++ (show (k `mod` num_child_elems))
@@ -193,10 +198,14 @@ dotLogTreeRecurse nodeID (Node _              [l, r]) = -- ordinary node
                   ++ ", sametail = \"" ++ nodeID ++ lID ++ (show k) ++ "\""
                   ++ ", decorate = \"true\""
                   ++ ", dir = \"back\""
-                  ++ ", label = \"" ++ (show ((-1) ^ (k `div` num_child_elems)))
-                  ++ " * W(" ++ (show num_elems) ++ ", "
-                  ++ (show (k `mod` num_child_elems)) ++ ")\"];\n"
-                  | k <- [0..(num_elems - 1)]
+                  ++ ", taillabel = \"" ++ (show ((-1) ^ (k `div` num_child_elems))) ++ "\""
+                  ++ twiddle
+                  ++ "];\n"
+                  |  k       <- [0..(num_elems - 1)]
+                   , twiddle <- do let res | k >= (num_child_elems) = ", headlabel = \"W(" ++ (show num_elems) ++ ", "
+                                                                    ++ (show (k `mod` num_child_elems)) ++ ")\""
+                                           | otherwise   = ""
+                                   return res
                 ]
        )
     where num_elems       = (2 * (length $ head $ reverse $ levels l))
