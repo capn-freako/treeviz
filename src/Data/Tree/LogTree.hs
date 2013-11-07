@@ -164,11 +164,12 @@ header = "digraph g { \n \
  \   node [ \n \
  \       fontsize = \"16\" \n \
  \       shape = \"ellipse\" \n \
+ \       height = \"0.3\" \n \
  \   ]; \n \
  \   edge [ \n \
  \   ];\n \
- \   ranksep = 1.5 \
- \   nodesep = 0"
+ \   ranksep = \"1.5\" \
+ \   nodesep = \"0\""
 
 dotLogTreeRecurse :: (Show a) => String -> LogTree a -> String
 dotLogTreeRecurse nodeID (Node (Just x, _, _) _     ) = -- leaf
