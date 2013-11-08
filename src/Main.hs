@@ -22,7 +22,7 @@ import Data.List (stripPrefix)
 import System.Exit (exitFailure)
 import Test.QuickCheck.All (quickCheckAll)
 import Data.Tree(drawTree, levels, flatten)
-import Data.Tree.LogTree( radix2DITTree, showLogTree, dotLogTree
+import Data.Tree.LogTree( radix2DITTree, dotLogTree
                         , getLevels,     getFlatten)
 
 -- Global constants
@@ -37,7 +37,11 @@ prop_hello s = stripPrefix "Hello " (hello s) == Just s
 
 -- Main
 exeMain = do
-    let tree   = radix2DITTree [0, 1, 2, 3]
+--    let tree   = radix2DITTree [0, 1, 2, 3]
+--    let tree   = radix2DITTree [1.0, 0.0, 0.0, 0.0]
+--    let tree   = radix2DITTree [1.0, 1.0, 1.0, 1.0]
+--    let tree   = radix2DITTree [0.0, 1.0, 0.0, -1.0]
+    let tree   = radix2DITTree [1.0, 0.0, -1.0, 0.0]
     writeFile kDotFileName $ dotLogTree tree
 --    let levels = getLevels tree
 --    forM_ levels $ putStrLn . show

@@ -18,7 +18,7 @@
 -----------------------------------------------------------------------------
 
 module Data.Tree.LogTree (
-    radix2DITTree, showLogTree, dotLogTree, getLevels, getFlatten, doDrawTree
+    radix2DITTree, dotLogTree, getLevels, getFlatten
 ) where
 
 import Data.Complex
@@ -106,49 +106,11 @@ radix2DITSubtree offset skip xs     = do
     r <- radix2DITSubtree (offset + skip) (2 * skip) (odds  xs)
     return $ Node (Nothing, [offset, offset + skip], Just (2 * skip)) [l, r]
 
--- showLogTree converts a LogTree to a string representation.
---
--- Example)
---   showLogTree $ radix2DITTree [...]
-showLogTree :: (Show a) => Either String (LogTree a) -> String
-showLogTree (Left msg)   = msg
-showLogTree (Right tree) = showLogTreeRecurse "" tree
-
-showLogTreeRecurse :: (Show a) => String -> LogTree a -> String
-showLogTreeRecurse _      (Node (Just x,  [],                   Nothing) [])     = -- leaf
-    show x
-showLogTreeRecurse indent (Node (Nothing, [x_offset, y_offset], Nothing) [x, y]) = -- penultimate node
-    indent
-    ++ "["
-    ++ (show x_offset) ++ "(" ++ (show $ getValue x) ++ ")" ++ " + "
-    ++ (show y_offset) ++ "(" ++ (show $ getValue y) ++ ")"
-    ++ ", "
-    ++ (show x_offset) ++ "(" ++ (show $ getValue x) ++ ")" ++ " - "
-    ++ (show y_offset) ++ "(" ++ (show $ getValue y) ++ ")"
-    ++ "]"
-showLogTreeRecurse indent (Node (Nothing, [l_offset, r_offset], Just skip) [l, r]) = -- ordinary node
-    indent
-    ++ concat [ "(" ++ "\n"
-             ++ showLogTreeRecurse (indent ++ "  ") l ++ "(" ++ show k ++ ")" ++ "+"
-             ++ "W(" ++ show (2 * (num_elems)) ++ ", " ++ show k ++ ")" ++ " * "
-             ++ showLogTreeRecurse (indent ++ "  ") r ++ "(" ++ show k ++ ")"
-             ++ "), "
-         | k <- [0..(num_elems)]
-       ]
-    ++ concat [ "(" ++ "\n"
-             ++ showLogTreeRecurse (indent ++ "  ") l ++ "(" ++ show k ++ ")" ++ "-"
-             ++ "W(" ++ show (2 * (num_elems)) ++ ", " ++ show k ++ ")" ++ " * "
-             ++ showLogTreeRecurse (indent ++ "  ") r ++ "(" ++ show k ++ ")"
-             ++ "), "
-         | k <- [0..(num_elems)]
-       ]
-    where num_elems = length $ flatten l
-
 -- dotLogTree converts a LogTree to a GraphViz dot diagram.
 --
 -- Example)
 --   dotLogTree $ radix2DITTree [...]
-dotLogTree :: (Show a) => Either String (LogTree a) -> String
+dotLogTree :: Either String (LogTree (Complex Float)) -> String
 dotLogTree (Left msg)   = header
  ++ "\"node0\" [label = \"" ++ msg ++ "\"]\n"
  ++ "}\n"
@@ -171,16 +133,17 @@ header = "digraph g { \n \
  \   ranksep = \"1.5\" \
  \   nodesep = \"0\""
 
-dotLogTreeRecurse :: (Show a) => String -> LogTree a -> String
-dotLogTreeRecurse nodeID (Node (Just x, _, _) _     ) = -- leaf
+dotLogTreeRecurse :: String -> LogTree (Complex Float) -> String
+dotLogTreeRecurse nodeID (Node (Just x,            _,    _)      _) = -- leaf
     -- Draw myself.
     "\"node" ++ nodeID ++ "\" [label = \"<f0> "
     ++ (show x)
     ++ "\" shape = \"record\"];\n"
-dotLogTreeRecurse nodeID (Node _              [l, r]) = -- ordinary node
+dotLogTreeRecurse nodeID (Node (     _, [loff, roff], skip) [l, r]) = -- ordinary node
     -- Draw myself.
-    "\"node" ++ nodeID ++ "\" [label = \"<f0>"
-    ++ (concat [" | <f" ++ (show k) ++ ">"| k <- [1..(num_elems - 1)]])
+    "\"node" ++ nodeID ++ "\" [label = \"<f0> " ++ (show (head res))
+    ++ (concat [" | <f" ++ (show k) ++ "> " ++ (show val)
+                 | (val, k) <- zip (tail res) [1..]])
     ++ "\" shape = \"record\"];\n"
     -- Draw children.
     ++ (dotLogTreeRecurse lID l)
@@ -216,7 +179,23 @@ dotLogTreeRecurse nodeID (Node _              [l, r]) = -- ordinary node
           num_child_elems = length $ head $ reverse $ levels l
           lID             = nodeID ++ "0"
           rID             = nodeID ++ "1"
+          res             = evalNode $ Node (Nothing, [loff, roff], skip) [l, r]
 
+-- evalNode - Evaluates a node in a tree, returning a list of values with
+--            length equal to the sum of the lengths of the node's children.
+evalNode :: LogTree (Complex Float) -> [Complex Float]
+evalNode (Node (Just x,  _, _) [])     = [x]
+evalNode (Node (Nothing, _, _) [l, r]) =
+       zipWith (+) el tr
+   ++ (zipWith (-) el tr)
+    where el = evalNode l
+          er = evalNode r
+          tr = (zipWith (*) [exp((0.0 :+ (-1.0)) * ((pi * k / childLen) :+ 0.0))
+                              | k <- map fromIntegral [0..]]
+                            er)
+          childLen = fromIntegral $ length $ head $ reverse $ levels l
+
+-- Helper function to grab a node's value.
 getValue :: LogTree a -> Maybe a
 getValue (Node (x, _, _) _) = x
 
@@ -227,6 +206,3 @@ getLevels (Right tree) = levels tree
 
 getFlatten (Left msg)   = [] -- (as above)
 getFlatten (Right tree) = levels tree
-
-doDrawTree (Left msg)   = msg
-doDrawTree (Right tree) = drawTree tree
