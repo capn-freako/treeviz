@@ -18,11 +18,12 @@
 -----------------------------------------------------------------------------
 
 module Data.Tree.LogTree (
-    radix2DITTree, dotLogTree, getLevels, getFlatten
+    radix2DITTree, dotLogTree, getLevels, getFlatten, mixedRadixTree
 ) where
 
 import Data.Complex
 import Data.Tree
+import Data.Monoid
 
 -- radix2_DIT - Calculates the FFT, making the radix-2 decimation-in-time
 --              algorithm explicit.
@@ -75,6 +76,53 @@ odds (x:xs)    = head xs : odds (tail xs)
 --      decimation-in-time (DIT) was used to decompose the original list.
 --      Otherwise, decimation-in-frequency (DIF) was used.
 type LogTree a = Tree (Maybe a, [Int], Maybe Int)
+
+-- mixedRadixTree Takes a list of values, along with a list of "radix /
+--                decimation-style" preferences, and constructs the tree
+--                representing the mixed radix, mixed decimation style
+--                decomposition of the list for processing.
+--
+-- Arguments:
+--   modes :: [(Int, Bool)] - list of pairs defining the desired radix and
+--                            decimation style for the successive levels of
+--                            the decomposition. (The Int gives the radix, and
+--                            the Bool tells whether DIF is to be used.)
+--
+--   xs    :: [a]           - the list of values to be decomposed.
+mixedRadixTree :: [(Int, Bool)] -> [a] -> Either String (LogTree a)
+mixedRadixTree _     []  = Left "Error: mixedRadixTree() called with empty list."
+--mixedRadixTree _     [x] = Left "Error: mixedRadixTree() called with singleton list."
+mixedRadixTree _     [x] = return $ Node (Just x, [], Nothing) []
+mixedRadixTree modes xs
+  | (foldl (*) 1 $ map fst modes) == (length xs) =
+    do
+      children <- sequence $ map (mixedRadixTree (tail modes)) subLists
+--      return $ Node (Nothing, childOffsets, skipFactor) children
+      return $ Node (Nothing, [], Just 1) children
+  | otherwise                                    =
+      Left "Error: Product of radices must equal length of input."
+  where subLists | (radix == 2) && (dif == False) = [evens     xs, odds       xs]
+                 | (radix == 2) && (dif == True)  = [firstHalf xs, secondHalf xs]
+                 | (radix == 4) && (dif == False) = [evens (evens xs), evens (odds xs), odds (evens xs), odds (odds xs)]
+                 | (radix == 4) && (dif == True)  = [firstHalf (firstHalf xs), secondHalf (firstHalf xs), firstHalf (secondHalf xs), secondHalf (secondHalf xs)]
+                 | otherwise                  = [] -- Should flag an error on the next recursion.
+        radix = fst $ head modes
+        dif   = snd $ head modes
+
+firstHalf :: [a] -> [a]
+firstHalf []  = []
+firstHalf [x] = [x]
+firstHalf xs  = take ((length xs) `div` 2) xs
+
+secondHalf :: [a] -> [a]
+secondHalf []  = []
+secondHalf [x] = []
+secondHalf xs  = drop ((length xs) `div` 2) xs
+
+-- mixedRadixRecurse - This is the work horse of the mixed radix decomposition.
+--                     It dispatches the successive levels of breakdown,
+--                     according to the values it finds in `modes'.
+--mixedRadixRecurse ::
 
 -- radix2DITTree Takes a list of values and constructs the tree representing
 --               the radix-2, decimation-in-time (DIT) decomposition of the
@@ -139,7 +187,7 @@ dotLogTreeRecurse nodeID (Node (Just x,            _,    _)      _) = -- leaf
     "\"node" ++ nodeID ++ "\" [label = \"<f0> "
     ++ (show x)
     ++ "\" shape = \"record\"];\n"
-dotLogTreeRecurse nodeID (Node (     _, [loff, roff], skip) [l, r]) = -- ordinary node
+dotLogTreeRecurse nodeID (Node (     _, childOffsets, skip) [l, r]) = -- ordinary node
     -- Draw myself.
     "\"node" ++ nodeID ++ "\" [label = \"<f0> " ++ (show (head res))
     ++ (concat [" | <f" ++ (show k) ++ "> " ++ (show val)
@@ -179,7 +227,12 @@ dotLogTreeRecurse nodeID (Node (     _, [loff, roff], skip) [l, r]) = -- ordinar
           num_child_elems = length $ head $ reverse $ levels l
           lID             = nodeID ++ "0"
           rID             = nodeID ++ "1"
-          res             = evalNode $ Node (Nothing, [loff, roff], skip) [l, r]
+          res             = evalNode $ Node (Nothing, childOffsets, skip) [l, r]
+dotLogTreeRecurse nodeID (Node (_, childOffsets, skip) children) = -- Temporary debugging:
+    "\"node" ++ nodeID ++ "\" [label = \"length childOffsets: "
+    ++ (show (length childOffsets))
+    ++ "; length children: " ++ (show (length children))
+    ++ "\"];\n"
 
 -- evalNode - Evaluates a node in a tree, returning a list of values with
 --            length equal to the sum of the lengths of the node's children.
