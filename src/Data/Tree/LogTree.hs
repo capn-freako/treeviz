@@ -63,14 +63,14 @@ odds (x:xs)    = head xs : odds (tail xs)
 --   a       = data type of original list elements.
 --
 --   Tree type tuple, from left to right:
---     a     = original list element value, for leaf; None, otherwise.
---     [Int] = starting indeces, in original input list, of children
---     Int   = index skip factor, in original input list, of children
+--     Maybe a   = original list element value, for leaf; Nothing, otherwise.
+--     [Int]     = starting indeces, in original input list, of children
+--     Maybe Int = index skip factor, in original input list, of children
 --
 -- Notes)
---   1) The radix of the decomposition represented by any tree is equal
---      to the number of children at any node (i.e. - length subForest),
---      which is also equal to the length of the second element in the
+--   1) The radix of the decomposition at any level of a tree is equal
+--      to the number of children at that node (i.e. - length subForest),
+--      which should also equal the length of the second element in the
 --      Tree type tuple.
 --   2) A value >1 in the third element of the Tree type tuple indicates
 --      decimation-in-time (DIT) was used to decompose the original list.
@@ -89,9 +89,15 @@ type LogTree a = Tree (Maybe a, [Int], Maybe Int)
 --                            the Bool tells whether DIF is to be used.)
 --
 --   xs    :: [a]           - the list of values to be decomposed.
+--
+-- TODO:
+--  - Decide whether or not we need to carry child offsets and skip factor
+--    forward. I suspect we do, for FFT evaluation purposes (i.e. - determining
+--    correct twiddle factor degree/index).
+--
+--  - Generic computation formula for subLists.
 mixedRadixTree :: [(Int, Bool)] -> [a] -> Either String (LogTree a)
 mixedRadixTree _     []  = Left "Error: mixedRadixTree() called with empty list."
---mixedRadixTree _     [x] = Left "Error: mixedRadixTree() called with singleton list."
 mixedRadixTree _     [x] = return $ Node (Just x, [], Nothing) []
 mixedRadixTree modes xs
   | (foldl (*) 1 $ map fst modes) == (length xs) =
@@ -119,11 +125,8 @@ secondHalf []  = []
 secondHalf [x] = []
 secondHalf xs  = drop ((length xs) `div` 2) xs
 
--- mixedRadixRecurse - This is the work horse of the mixed radix decomposition.
---                     It dispatches the successive levels of breakdown,
---                     according to the values it finds in `modes'.
---mixedRadixRecurse ::
-
+-- NOTE) The following function pair is now redundant w/ mixedRadixTree().
+--
 -- radix2DITTree Takes a list of values and constructs the tree representing
 --               the radix-2, decimation-in-time (DIT) decomposition of the
 --               list for processing.
@@ -183,7 +186,7 @@ header = "digraph g { \n \
 
 dotLogTreeRecurse :: String -> LogTree (Complex Float) -> String
 dotLogTreeRecurse nodeID (Node (Just x,            _,    _)      _) = -- leaf
-    -- Draw myself.
+    -- Just draw myself.
     "\"node" ++ nodeID ++ "\" [label = \"<f0> "
     ++ (show x)
     ++ "\" shape = \"record\"];\n"
