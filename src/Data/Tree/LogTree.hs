@@ -1,7 +1,13 @@
 {-# LANGUAGE StandaloneDeriving
            , FlexibleContexts
            , UndecidableInstances
-           , ParallelListComp #-}
+           , TypeSynonymInstances
+           , FlexibleInstances
+           , MultiParamTypeClasses
+           , FunctionalDependencies
+           , TypeFamilies
+           , Rank2Types
+           #-}
 
 -----------------------------------------------------------------------------
 --
@@ -18,64 +24,121 @@
 -----------------------------------------------------------------------------
 
 module Data.Tree.LogTree (
-    radix2DITTree, dotLogTree, getLevels, getFlatten, mixedRadixTree
+    newTreeData, dotLogTree
+  , buildTree,   newFFTTree
+  , getLevels,   getFlatten, getEval
 ) where
 
 import Data.Complex
 import Data.Tree
-import Data.Monoid
 
--- radix2_DIT - Calculates the FFT, making the radix-2 decimation-in-time
---              algorithm explicit.
+-- Data.Tree.LogTree - a class of tree structures representing logarithmic
+--                     decomposition of arbitrary radix and using either
+--                     decimation-in-time (DIT), or
+--                     decimation-in-frequency (DIF) approach.
 --
--- This function probably won't be used much, given the general intent of
--- this module. It was origiinally written, for two purposes:
---   1) To ensure I had the algorithm correctly understood.
---   2) To provide a reference for constructing the `radix2_DIT_Tree'
---      function, which is the real meat of the act, here.
-radix2_DIT :: RealFloat a => Bool -> [Complex a] -> [Complex a]
-radix2_DIT _ []    = []
-radix2_DIT _ [x]   = [x]
-radix2_DIT rev xs  = (++) (zipWith (+) xes xos) (zipWith (-) xes xos)
-    where wn | rev       = exp (0.0 :+ ( 2.0 * pi / (fromIntegral (length xs))))
-             | otherwise = exp (0.0 :+ (-2.0 * pi / (fromIntegral (length xs))))
-          xes            = radix2_DIT rev (evens xs)
-          xos            = zipWith (*) (radix2_DIT rev (odds xs))
-                                       [wn ** (fromIntegral k) | k <- [0..]]
-
-evens :: [a] -> [a]
-evens []     = []
-evens [x]    = [x]
-evens [x, y] = [x]
-evens (x:xs) = x : evens (tail xs)
-
-odds :: [a] -> [a]
-odds []        = []
-odds [x]       = []
-odds [x, y]    = [y]
-odds [x, y, z] = [y]
-odds (x:xs)    = head xs : odds (tail xs)
-
--- Data.Tree.LogTree - a tree structure representing logarithmic decomposition
---                     of arbitrary radix and using either decimation-in-time
---                     (DIT), or decimation-in-frequency (DIF) approach.
---
---   a       = data type of original list elements.
+--   a           = data type of original list elements.
 --
 --   Tree type tuple, from left to right:
 --     Maybe a   = original list element value, for leaf; Nothing, otherwise.
 --     [Int]     = starting indeces, in original input list, of children
---     Maybe Int = index skip factor, in original input list, of children
+--     Int       = index skip factor, in original input list, of children
+--     Bool      = True, if decimation in frequency (DIF) was used to form children.
 --
 -- Notes)
 --   1) The radix of the decomposition at any level of a tree is equal
 --      to the number of children at that node (i.e. - length subForest),
 --      which should also equal the length of the second element in the
 --      Tree type tuple.
---   2) A value >1 in the third element of the Tree type tuple indicates
---      decimation-in-time (DIT) was used to decompose the original list.
---      Otherwise, decimation-in-frequency (DIF) was used.
-type LogTree a = Tree (Maybe a, [Int], Maybe Int)
+
+type GenericLogTree a = Tree (Maybe a, [Int], Int, Bool)
+
+class (t ~ GenericLogTree a) => LogTree t a | t -> a where
+    -- evalNode - Evaluates a node in a tree, returning a list of values
+    --            of the original type.
+    evalNode :: t -> [a]
+
+-- FFTTree - an instance of LogTree, this type represents the Fast Fourier
+--           Transform (FFT) of arbitrary radix and decimation scheme.
+type FFTTree = GenericLogTree (Complex Float)
+instance LogTree FFTTree (Complex Float) where
+    evalNode (Node (Just x,  _, _,   _)        _) = [x]
+    evalNode (Node (     _,  _, _, dif) children) =
+        foldl (zipWith (+)) [0.0 | n <- [1..nodeLen]]
+            $ map (uncurry (zipWith (*)))
+                $ zip (map (\l -> concat [l | i <- [1..radix]]) subs)
+                      twiddles
+        where subs     = map evalNode children
+              childLen = length $ head $ reverse $ levels $ head children
+              nodeLen  = childLen * radix
+              radix    = length children
+              twiddles = [[exp((0.0 :+ (-1.0)) * 2.0 * pi * (fromIntegral r)
+                             * (fromIntegral k) / degree)
+                            | k <- [0..(nodeLen - 1)]
+                          ]
+                           | r <- [0..(radix - 1)]
+                         ]
+              degree   | dif       = fromIntegral radix
+                       | otherwise = fromIntegral nodeLen
+
+-- This is the intended user interface for building trees.
+-- It uses the "newtype record syntax" trick of O'Sullivan et al., in
+-- order to provide "future proofing" of the implementation by introducing
+-- one level of indirection between the user and the actual tree construction.
+--
+-- This approach has confused many people (including myself). So, I'll attempt
+-- to explain what I intend:
+--
+-- PRIMARY GOAL: We don't want users calling the `TreeBuilder` data constructor
+--               directly, because the type of its `buildTree` accessor may
+--               change in the future. And that would break exisitng client
+--               code.
+--
+-- SECONDARY GOAL: We don't want to "hard-wire" the types of the input
+--                 parameters to the buildTree accessor, because client
+--                 code will need to call this function.
+--
+-- In order to achieve our primary goal we provide, for instance, the
+-- `newFFTTree' function, which returns a TreeBuilder instance to the user
+-- without requiring him to call TreeBuilder directly. If we then ever
+-- change the type of buildTree, we can change the definition of newFFTTree
+-- to match, and the user's existing client code won't be affected.
+--
+-- In order to achieve our secondary goal we encapsulate the input
+-- parameters needed by the buildTree function in a new Data item,
+-- and use record syntax to set/get the individual fields. In this way,
+-- we can expand the data item in the future without breaking existing
+-- client code. We add some additional future proofing by forcing the
+-- user to use the `newTreeData' convenience function to build his
+-- data structure, rather than exporting the TreeData constructor itself.
+--
+-- So, the call from the user's client code will look like this:
+--
+--   tData = newTreeData [(2, False), (2, False)] [1.0, 0.0, 0.0, 0.0]
+--   tree  = buildTree newFFTTree tData
+--
+-- The output of the buildTree function has been wrapped inside an
+-- Either, in order to make error reporting possible.
+--
+-- TODO:
+
+data TreeData a = TreeData {
+    modes  :: [(Int, Bool)]
+  , values :: [a]
+} deriving(Show)
+
+newTreeData :: [(Int, Bool)] -> [a] -> TreeData a
+newTreeData modes values = TreeData {
+                               modes  = modes
+                             , values = values
+                           }
+
+newtype TreeBuilder t = TreeBuilder {
+    buildTree :: LogTree t a => TreeData a -> Either String t
+}
+
+newFFTTree :: TreeBuilder FFTTree
+newFFTTree = TreeBuilder buildMixedRadixTree
 
 -- mixedRadixTree Takes a list of values, along with a list of "radix /
 --                decimation-style" preferences, and constructs the tree
@@ -89,79 +152,48 @@ type LogTree a = Tree (Maybe a, [Int], Maybe Int)
 --                            the Bool tells whether DIF is to be used.)
 --
 --   xs    :: [a]           - the list of values to be decomposed.
---
--- TODO:
---  - Decide whether or not we need to carry child offsets and skip factor
---    forward. I suspect we do, for FFT evaluation purposes (i.e. - determining
---    correct twiddle factor degree/index).
---
---  - Generic computation formula for subLists.
-mixedRadixTree :: [(Int, Bool)] -> [a] -> Either String (LogTree a)
-mixedRadixTree _     []  = Left "Error: mixedRadixTree() called with empty list."
-mixedRadixTree _     [x] = return $ Node (Just x, [], Nothing) []
-mixedRadixTree modes xs
+
+buildMixedRadixTree :: TreeData a -> Either String (GenericLogTree a)
+buildMixedRadixTree td = mixedRadixTree td_modes td_values
+    where td_modes  = modes td
+          td_values = values td
+
+mixedRadixTree :: [(Int, Bool)] -> [a] -> Either String (GenericLogTree a)
+mixedRadixTree _     []  = Left "mixedRadixTree(): called with empty list."
+mixedRadixTree _     [x] = return $ Node (Just x, [], 0, False) []
+mixedRadixTree modes xs  = mixedRadixRecurse 0 1 modes xs
+
+mixedRadixRecurse :: Int -> Int -> [(Int, Bool)] -> [a] -> Either String (GenericLogTree a)
+mixedRadixRecurse _ _ _ []  = Left "mixedRadixRecurse(): called with empty list."
+mixedRadixRecurse myOffset _ _ [x] = return $ Node (Just x, [myOffset], 0, False) []
+mixedRadixRecurse myOffset mySkipFactor modes xs
   | (foldl (*) 1 $ map fst modes) == (length xs) =
     do
-      children <- sequence $ map (mixedRadixTree (tail modes)) subLists
---      return $ Node (Nothing, childOffsets, skipFactor) children
-      return $ Node (Nothing, [], Just 1) children
+      children <- sequence $ [mixedRadixRecurse childOffset childSkipFactor
+                                   (tail modes) subList
+                               | (childOffset, subList) <- zip childOffsets subLists
+                             ]
+      return $ Node (Nothing, childOffsets, childSkipFactor, dif) children
   | otherwise                                    =
-      Left "Error: Product of radices must equal length of input."
-  where subLists | (radix == 2) && (dif == False) = [evens     xs, odds       xs]
-                 | (radix == 2) && (dif == True)  = [firstHalf xs, secondHalf xs]
-                 | (radix == 4) && (dif == False) = [evens (evens xs), evens (odds xs), odds (evens xs), odds (odds xs)]
-                 | (radix == 4) && (dif == True)  = [firstHalf (firstHalf xs), secondHalf (firstHalf xs), firstHalf (secondHalf xs), secondHalf (secondHalf xs)]
-                 | otherwise                  = [] -- Should flag an error on the next recursion.
-        radix = fst $ head modes
-        dif   = snd $ head modes
+      Left "mixedRadixTree(): Product of radices must equal length of input."
+  where subLists = [ [xs !! (offset + i * skipFactor) | i <- [0..(childLen - 1)]]
+                     | offset <- offsets
+                   ]
+        childSkipFactor | dif       = mySkipFactor
+                        | otherwise = mySkipFactor * radix
+        childOffsets    | dif       = [myOffset + (i * mySkipFactor * childLen) | i <- [0..(radix - 1)]]
+                        | otherwise = [myOffset +  i * mySkipFactor             | i <- [0..(radix - 1)]]
+        skipFactor      | dif       = 1
+                        | otherwise = radix
+        offsets         | dif       = [i * childLen | i <- [0..(radix - 1)]]
+                        | otherwise = [i            | i <- [0..(radix - 1)]]
+        childLen = (length xs) `div` radix
+        radix    = fst $ head modes
+        dif      = snd $ head modes
 
-firstHalf :: [a] -> [a]
-firstHalf []  = []
-firstHalf [x] = [x]
-firstHalf xs  = take ((length xs) `div` 2) xs
+-- dotLogTree converts a GenericLogTree to a GraphViz dot diagram.
 
-secondHalf :: [a] -> [a]
-secondHalf []  = []
-secondHalf [x] = []
-secondHalf xs  = drop ((length xs) `div` 2) xs
-
--- NOTE) The following function pair is now redundant w/ mixedRadixTree().
---
--- radix2DITTree Takes a list of values and constructs the tree representing
---               the radix-2, decimation-in-time (DIT) decomposition of the
---               list for processing.
-radix2DITTree :: [a] -> Either String (LogTree a)
-radix2DITTree []     = Left "Error: radix2DITTree() called with empty list."
-radix2DITTree [x]    = Left "Error: radix2DITTree() called with singleton list."
-radix2DITTree xs     = do
-    l <- radix2DITSubtree 0 2 (evens xs)
-    r <- radix2DITSubtree 1 2 (odds  xs)
-    return $ Node (Nothing, [0, 1], Just 2) [l, r]
-
--- radix2DITSubtree This "recursion helper" is necessary, since we only need
---                  the extra information it carries along, after the first
---                  call to radix2DITTree. That is, we don't want to burden
---                  the user with having to supply bogus values for the
---                  `offset' & `skip' parameters, in the call to radix2DITTree.
-radix2DITSubtree :: Int -> Int -> [a] -> Either String (LogTree a)
-radix2DITSubtree _ _ []  = Left "Error: radix2DITSubtree() called with empty list."
-radix2DITSubtree _ _ [x] = Left "Error: radix2DITSubtree() called with singleton list."
-radix2DITSubtree offset skip [x, y] =
-    do return $
-        Node (Nothing, [offset, offset + skip], Nothing) [
-            Node (Just x, [], Nothing) []
-          , Node (Just y, [], Nothing) []
-          ]
-radix2DITSubtree offset skip xs     = do
-    l <- radix2DITSubtree  offset         (2 * skip) (evens xs)
-    r <- radix2DITSubtree (offset + skip) (2 * skip) (odds  xs)
-    return $ Node (Nothing, [offset, offset + skip], Just (2 * skip)) [l, r]
-
--- dotLogTree converts a LogTree to a GraphViz dot diagram.
---
--- Example)
---   dotLogTree $ radix2DITTree [...]
-dotLogTree :: Either String (LogTree (Complex Float)) -> String
+dotLogTree :: (Show a, LogTree t a) => Either String t -> String
 dotLogTree (Left msg)   = header
  ++ "\"node0\" [label = \"" ++ msg ++ "\"]\n"
  ++ "}\n"
@@ -184,38 +216,23 @@ header = "digraph g { \n \
  \   ranksep = \"1.5\" \
  \   nodesep = \"0\""
 
-dotLogTreeRecurse :: String -> LogTree (Complex Float) -> String
-dotLogTreeRecurse nodeID (Node (Just x,            _,    _)      _) = -- leaf
+dotLogTreeRecurse :: (Show a, LogTree t a) => String -> t -> String
+dotLogTreeRecurse nodeID (Node (Just x,      offsets,    _,   _)        _) = -- leaf
     -- Just draw myself.
     "\"node" ++ nodeID ++ "\" [label = \"<f0> "
-    ++ (show x)
+    ++ "[" ++ (show $ head offsets) ++ "] " ++ (show x)
     ++ "\" shape = \"record\"];\n"
-dotLogTreeRecurse nodeID (Node (     _, childOffsets, skip) [l, r]) = -- ordinary node
+dotLogTreeRecurse nodeID (Node (     _, childOffsets, skip, dif) children) = -- ordinary node
     -- Draw myself.
     "\"node" ++ nodeID ++ "\" [label = \"<f0> " ++ (show (head res))
     ++ (concat [" | <f" ++ (show k) ++ "> " ++ (show val)
                  | (val, k) <- zip (tail res) [1..]])
     ++ "\" shape = \"record\"];\n"
     -- Draw children.
-    ++ (dotLogTreeRecurse lID l)
-    ++ (dotLogTreeRecurse rID r)
+    ++ (concatMap (uncurry dotLogTreeRecurse)
+                  [(childID, child) | (childID, child) <- zip childIDs children])
     -- Draw my connections to my children.
-    ++ (unlines [ "\"node" ++ nodeID ++ "\":f" ++ (show k) ++ " -> \"node"
-                  ++ lID ++ "\":f" ++ (show (k `mod` num_child_elems))
-                  ++ ":e"
-                  ++ " [id = \"" ++ nodeID ++ lID ++ (show k) ++ "\""
-                  ++ ", decorate = \"true\""
-                  ++ ", dir = \"back\"];\n"
-                  ++ "\"node" ++ nodeID ++ "\":f" ++ (show k) ++ " -> \"node"
-                  ++ rID ++ "\":f" ++ (show (k `mod` num_child_elems))
-                  ++ ":e"
-                  ++ " [id = \"" ++ nodeID ++ rID ++ (show k) ++ "\""
-                  ++ ", sametail = \"" ++ nodeID ++ lID ++ (show k) ++ "\""
-                  ++ ", decorate = \"true\""
-                  ++ ", dir = \"back\""
-                  ++ ", taillabel = " ++ opt_sign
-                  ++ ", headlabel = " ++ twiddle
-                  ++ "];\n"
+    ++ (unlines [ concatMap (drawConnection nodeID num_child_elems k) childIDs
                   |  k        <- [0..(num_elems - 1)]
                    , twiddle  <- do let res | k >= (num_child_elems) = "\"W(" ++ (show num_elems) ++ ", "
                                                                      ++ (show (k `mod` num_child_elems)) ++ ")\""
@@ -226,34 +243,29 @@ dotLogTreeRecurse nodeID (Node (     _, childOffsets, skip) [l, r]) = -- ordinar
                                     return res
                 ]
        )
-    where num_elems       = 2 * num_child_elems
-          num_child_elems = length $ head $ reverse $ levels l
-          lID             = nodeID ++ "0"
-          rID             = nodeID ++ "1"
-          res             = evalNode $ Node (Nothing, childOffsets, skip) [l, r]
-dotLogTreeRecurse nodeID (Node (_, childOffsets, skip) children) = -- Temporary debugging:
-    "\"node" ++ nodeID ++ "\" [label = \"length childOffsets: "
-    ++ (show (length childOffsets))
-    ++ "; length children: " ++ (show (length children))
-    ++ "\"];\n"
+    where num_elems       = (length children) * num_child_elems
+          num_child_elems = length $ head $ reverse $ levels $ head children
+          childIDs        = [nodeID ++ (show i) | i <- [0..((length children) - 1)]]
+          res             = evalNode $ Node (Nothing, childOffsets, skip, dif) children
 
--- evalNode - Evaluates a node in a tree, returning a list of values with
---            length equal to the sum of the lengths of the node's children.
-evalNode :: LogTree (Complex Float) -> [Complex Float]
-evalNode (Node (Just x,  _, _) [])     = [x]
-evalNode (Node (Nothing, _, _) [l, r]) =
-       zipWith (+) el tr
-   ++ (zipWith (-) el tr)
-    where el = evalNode l
-          er = evalNode r
-          tr = (zipWith (*) [exp((0.0 :+ (-1.0)) * ((pi * k / childLen) :+ 0.0))
-                              | k <- map fromIntegral [0..]]
-                            er)
-          childLen = fromIntegral $ length $ head $ reverse $ levels l
+drawConnection nodeID num_child_elems k childID =
+    "\"node"     ++ nodeID  ++ "\":f" ++ (show k) ++
+    " -> \"node" ++ childID ++ "\":f" ++ (show (k `mod` num_child_elems)) ++
+    ":e" ++
+    " [id = \"" ++ nodeID ++ childID ++ (show k) ++ "\"" ++
+    ", decorate = \"true\"" ++
+    ", dir = \"back\"];\n"
+--                  ++ ", sametail = \"" ++ nodeID ++ lID ++ (show k) ++ "\""
+--                  ++ ", taillabel = " ++ opt_sign
+--                  ++ ", headlabel = " ++ twiddle
 
 -- Helper function to grab a node's value.
-getValue :: LogTree a -> Maybe a
-getValue (Node (x, _, _) _) = x
+getValue :: LogTree t a => t -> Maybe a
+getValue (Node (x, _, _, _) _) = x
+
+-- Helper function to evaluate a node.
+getEval (Left msg)   = []
+getEval (Right tree) = evalNode tree
 
 -- These helper functions just unwrap the Either from arround a
 -- LogTree, so that the equivalent functions from Data.Tree can be used.

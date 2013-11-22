@@ -22,8 +22,8 @@ import Data.List (stripPrefix)
 import System.Exit (exitFailure)
 import Test.QuickCheck.All (quickCheckAll)
 import Data.Tree(drawTree, levels, flatten)
-import Data.Tree.LogTree( radix2DITTree, dotLogTree, mixedRadixTree
-                        , getLevels,     getFlatten)
+import Data.Tree.LogTree( buildTree, dotLogTree, newFFTTree
+                        , getLevels, getFlatten, getEval, newTreeData)
 
 -- Global constants
 kDotFileName = "test.dot"
@@ -37,16 +37,13 @@ prop_hello s = stripPrefix "Hello " (hello s) == Just s
 
 -- Main
 exeMain = do
---    let tree   = radix2DITTree [0, 1, 2, 3]
---    let tree   = radix2DITTree [1.0, 0.0, 0.0, 0.0]
---    let tree   = radix2DITTree [1.0, 1.0, 1.0, 1.0]
---    let tree   = radix2DITTree [0.0, 1.0, 0.0, -1.0]
---    let tree   = radix2DITTree [1.0, 0.0, -1.0, 0.0]
-    let tree   = mixedRadixTree [(2, False), (2, False)] [1.0, 0.0, -1.0, 0.0]
+--    let tData  = newTreeData [(2, False), (2, False)] [1.0, 0.0, 0.0, 0.0]
+--    let tData  = newTreeData [(2, True), (2, True), (2, True)] [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+--    let tData  = newTreeData [(2, True), (2, True), (2, True)] [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    let tData  = newTreeData [(2, False), (2, False), (2, False)] [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    let tree   = buildTree newFFTTree tData
+    let res    = getEval tree
     writeFile kDotFileName $ dotLogTree tree
---    let levels = getLevels tree
---    forM_ levels $ putStrLn . show
---    putStr $ showLogTree $ tree
 
 -- Entry point for unit tests.
 testMain = do
