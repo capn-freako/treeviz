@@ -65,22 +65,20 @@ class (t ~ GenericLogTree a) => LogTree t a | t -> a where
 type FFTTree = GenericLogTree (Complex Float)
 instance LogTree FFTTree (Complex Float) where
     evalNode (Node (Just x,  _, _,   _)        _) = [x]
-    evalNode (Node (     _,  _, _, dif) children) = case dif of
-        False -> foldl (zipWith (+)) [0.0 | n <- [1..nodeLen]]
-                   $ map (uncurry (zipWith (*)))
-                     $ zip (map (\l -> concat [l | i <- [1..radix]]) subs)
-                           phasors
-        True  -> foldl (zipWith (+)) [0.0 | n <- [1..nodeLen]]
-                   $ map (uncurry (zipWith (*)))
-                     $ zip [ concat $ transpose -- i.e. - interleave.
-                               $ map evalNode
-                                     [ snd (coProd twiddle child)
-                                       | twiddle <- twiddles
-                                     ]
-                             | child <- children
-                           ]
-                           phasors
-      where subs     = map evalNode children
+    evalNode (Node (     _,  _, _, dif) children) =
+        foldl (zipWith (+)) [0.0 | n <- [1..nodeLen]]
+          $ map (uncurry (zipWith (*)))
+              $ zip subTransforms phasors
+      where subTransforms = case dif of
+              False -> (map (concat . (replicate radix)) subs)
+              True  -> [ concat $ transpose -- i.e. - interleave.
+                           $ map evalNode
+                                 [ snd (coProd twiddle child)
+                                   | twiddle <- twiddles
+                                 ]
+                         | child <- children
+                       ]
+            subs     = map evalNode children
             childLen = length $ head $ reverse $ levels $ head children
             nodeLen  = childLen * radix
             radix    = length children
