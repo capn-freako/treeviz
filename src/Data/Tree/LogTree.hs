@@ -31,6 +31,7 @@ module Data.Tree.LogTree (
 
 import Data.Complex
 import Data.Tree
+import Data.List
 
 -- Data.Tree.LogTree - a class of tree structures representing logarithmic
 --                     decomposition of arbitrary radix and using either
@@ -54,6 +55,7 @@ import Data.Tree
 type GenericLogTree a = Tree (Maybe a, [Int], Int, Bool)
 
 class (t ~ GenericLogTree a) => LogTree t a | t -> a where
+
     -- evalNode - Evaluates a node in a tree, returning a list of values
     --            of the original type.
     evalNode :: t -> [a]
@@ -63,23 +65,53 @@ class (t ~ GenericLogTree a) => LogTree t a | t -> a where
 type FFTTree = GenericLogTree (Complex Float)
 instance LogTree FFTTree (Complex Float) where
     evalNode (Node (Just x,  _, _,   _)        _) = [x]
-    evalNode (Node (     _,  _, _, dif) children) =
-        foldl (zipWith (+)) [0.0 | n <- [1..nodeLen]]
-            $ map (uncurry (zipWith (*)))
-                $ zip (map (\l -> concat [l | i <- [1..radix]]) subs)
-                      twiddles
-        where subs     = map evalNode children
-              childLen = length $ head $ reverse $ levels $ head children
-              nodeLen  = childLen * radix
-              radix    = length children
-              twiddles = [[exp((0.0 :+ (-1.0)) * 2.0 * pi * (fromIntegral r)
-                             * (fromIntegral k) / degree)
-                            | k <- [0..(nodeLen - 1)]
-                          ]
-                           | r <- [0..(radix - 1)]
-                         ]
-              degree   | dif       = fromIntegral radix
-                       | otherwise = fromIntegral nodeLen
+    evalNode (Node (     _,  _, _, dif) children) = case dif of
+        False -> foldl (zipWith (+)) [0.0 | n <- [1..nodeLen]]
+                   $ map (uncurry (zipWith (*)))
+                     $ zip (map (\l -> concat [l | i <- [1..radix]]) subs)
+                           phasors
+        True  -> foldl (zipWith (+)) [0.0 | n <- [1..nodeLen]]
+                   $ map (uncurry (zipWith (*)))
+                     $ zip [ concat $ transpose -- i.e. - interleave.
+                               $ map evalNode
+                                     [ snd (coProd twiddle child)
+                                       | twiddle <- twiddles
+                                     ]
+                             | child <- children
+                           ]
+                           phasors
+      where subs     = map evalNode children
+            childLen = length $ head $ reverse $ levels $ head children
+            nodeLen  = childLen * radix
+            radix    = length children
+            phasors  = [ [ exp((0.0 :+ (-1.0)) * 2.0 * pi / degree
+                             * (fromIntegral r) * (fromIntegral k))
+                           | k <- [0..(nodeLen - 1)]]
+                         | r <- [0..(radix - 1)]]
+            degree   | dif       = fromIntegral radix
+                     | otherwise = fromIntegral nodeLen
+            twiddles = [ [ exp((0.0 :+ (-1.0)) * 2.0 * pi / (fromIntegral nodeLen)
+                             * (fromIntegral m) * (fromIntegral n))
+                           | n <- [0..(childLen - 1)]]
+                         | m <- [0..(radix - 1)]]
+
+-- coProd   - Produces a new tree, where the elements are the products
+--            of the original elements and the elements of a list.
+--            Returns the modified tree and any unconsumed list elements.
+coProd :: (Num a, t ~ GenericLogTree a) => [a] -> t -> ([a], t)
+coProd [] (Node (Just x,  offsets, skipFactor,   dif) _) =
+  ([], Node (Just x,  offsets, skipFactor,   dif) [])
+coProd [a] (Node (Just x,  offsets, skipFactor,   dif) _) =
+  ([], Node (Just (a * x),  offsets, skipFactor,   dif) [])
+coProd (a:as) (Node (Just x,  offsets, skipFactor,   dif) _) =
+  (as, Node (Just (a * x),  offsets, skipFactor,   dif) [])
+coProd as (Node (_, offsets, skipFactor, dif) children) =
+  (bs, Node (Nothing, offsets, skipFactor, dif) childProds)
+  where (bs, childProds) = foldl coProdStep (as, []) children
+
+coProdStep :: (Num a, t ~ GenericLogTree a) => ([a], [t]) -> t -> ([a], [t])
+coProdStep (as, ts) t = (bs, ts ++ [t'])
+    where (bs, t') = coProd as t
 
 -- This is the intended user interface for building trees.
 -- It uses the "newtype record syntax" trick of O'Sullivan et al., in
@@ -119,8 +151,6 @@ instance LogTree FFTTree (Complex Float) where
 --
 -- The output of the buildTree function has been wrapped inside an
 -- Either, in order to make error reporting possible.
---
--- TODO:
 
 data TreeData a = TreeData {
     modes  :: [(Int, Bool)]
