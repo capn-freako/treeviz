@@ -1,0 +1,25 @@
+This is the `DivideAndConquer` library, written by David Banas.
+
+For more info, please, see the comments in `Data/Tree/LogTree.hs`.
+Alternatively, view the Haddock generated HTML documentation:
+  $ cabal haddock
+
+For information on the community support infrastructure for this library,
+view the home page for this library:
+  http://www.haskell.org/haskellwiki/DivideAndConquer
+
+There you will find links to:
+- mailing list
+- blog
+- bug tracker
+- etc.
+
+For usage examples, please, see:
+- src/Main.hs
+
+The intent of this library is to provide the data structures, type classes,
+and support functions necessary for working with and visualizing computation
+decomposition trees. For instance, the initial motivation for creating this
+package was the need to visualize how data flow occurs in a fast Fourier
+transform (FFT) of arbitrary radices and either decimation style (time or
+frequency).

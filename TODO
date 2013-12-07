@@ -1,0 +1,5 @@
+This is the DivideAndConquer library "ToDo" list:
+
+- Improve user documentation.
+- Add more LogTree instanes.
+- Investigate failure of mixed radix FFT.

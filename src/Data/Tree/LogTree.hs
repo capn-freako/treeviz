@@ -1,5 +1,4 @@
-{-# LANGUAGE StandaloneDeriving
-           , FlexibleContexts
+{-# LANGUAGE FlexibleContexts
            , UndecidableInstances
            , TypeSynonymInstances
            , FlexibleInstances
@@ -27,11 +26,13 @@ module Data.Tree.LogTree (
     newTreeData, dotLogTree
   , buildTree,   newFFTTree
   , getLevels,   getFlatten, getEval
+  , modes,       values
 ) where
 
 import Data.Complex
 import Data.Tree
 import Data.List
+import Text.Printf (printf, PrintfArg)
 
 -- Data.Tree.LogTree - a class of tree structures representing logarithmic
 --                     decomposition of arbitrary radix and using either
@@ -62,34 +63,34 @@ class (t ~ GenericLogTree a) => LogTree t a | t -> a where
 
 -- FFTTree - an instance of LogTree, this type represents the Fast Fourier
 --           Transform (FFT) of arbitrary radix and decimation scheme.
-type FFTTree = GenericLogTree (Complex Float)
-instance LogTree FFTTree (Complex Float) where
+type FFTTree = GenericLogTree (Complex Double)
+instance LogTree FFTTree (Complex Double) where
     evalNode (Node (Just x,  _, _,   _)        _) = [x]
     evalNode (Node (     _,  _, _, dif) children) =
         foldl (zipWith (+)) [0.0 | n <- [1..nodeLen]]
-          $ map (uncurry (zipWith (*)))
-              $ zip subTransforms phasors
-      where subTransforms = case dif of
-              False -> (map (concat . (replicate radix)) subs)
-              True  -> [ concat $ transpose -- i.e. - interleave.
-                           $ map evalNode
-                                 [ snd (coProd twiddle child)
-                                   | twiddle <- twiddles
-                                 ]
-                         | child <- children
-                       ]
+          $ zipWith (zipWith (*)) subTransforms phasors
+      where subTransforms =
+              if dif then
+                [ concat $ transpose -- i.e. - interleave.
+                    $ map evalNode
+                          [ snd (coProd twiddle child)
+                            | twiddle <- twiddles
+                          ]
+                  | child <- children
+                ]
+              else map (concat . replicate radix) subs
             subs     = map evalNode children
-            childLen = length $ head $ reverse $ levels $ head children
+            childLen = length $ last(levels $ head children)
             nodeLen  = childLen * radix
             radix    = length children
             phasors  = [ [ exp((0.0 :+ (-1.0)) * 2.0 * pi / degree
-                             * (fromIntegral r) * (fromIntegral k))
+                             * fromIntegral r * fromIntegral k)
                            | k <- [0..(nodeLen - 1)]]
                          | r <- [0..(radix - 1)]]
             degree   | dif       = fromIntegral radix
                      | otherwise = fromIntegral nodeLen
-            twiddles = [ [ exp((0.0 :+ (-1.0)) * 2.0 * pi / (fromIntegral nodeLen)
-                             * (fromIntegral m) * (fromIntegral n))
+            twiddles = [ [ exp((0.0 :+ (-1.0)) * 2.0 * pi / fromIntegral nodeLen
+                             * fromIntegral m * fromIntegral n)
                            | n <- [0..(childLen - 1)]]
                          | m <- [0..(radix - 1)]]
 
@@ -155,16 +156,34 @@ data TreeData a = TreeData {
   , values :: [a]
 } deriving(Show)
 
-newTreeData :: [(Int, Bool)] -> [a] -> TreeData a
+{-|
+Build a data structure suitable for passing to a tree constructor.
+
+Example:
+    tData = newTreeData [(2, False), (2, False)] [1.0, 0.0, 0.0, 0.0]
+
+Note) For now, all booleans in the list should contain
+      the same value, either True or False.
+-}
+newTreeData :: [(Int, Bool)] -- ^ Decomposition modes : (radix, DIF_flag).
+            -> [a]           -- ^ Values for populating the tree.
+            -> TreeData a    -- ^ Resultant data structure for passing to tree constructor.
 newTreeData modes values = TreeData {
                                modes  = modes
                              , values = values
                            }
 
 newtype TreeBuilder t = TreeBuilder {
+    -- | Tree builder
+    --
+    -- Example:
+    --   tree  = buildTree newFFTTree tData
     buildTree :: LogTree t a => TreeData a -> Either String t
 }
 
+-- | Returns a tree builder suitable for constructing Fast Fourier Transform
+--   (FFT) decomposition trees of arbitrary radices and either decimation
+--   style (i.e. - DIT or DIF).
 newFFTTree :: TreeBuilder FFTTree
 newFFTTree = TreeBuilder buildMixedRadixTree
 
@@ -195,12 +214,12 @@ mixedRadixRecurse :: Int -> Int -> [(Int, Bool)] -> [a] -> Either String (Generi
 mixedRadixRecurse _ _ _ []  = Left "mixedRadixRecurse(): called with empty list."
 mixedRadixRecurse myOffset _ _ [x] = return $ Node (Just x, [myOffset], 0, False) []
 mixedRadixRecurse myOffset mySkipFactor modes xs
-  | (foldl (*) 1 $ map fst modes) == (length xs) =
+  | product (map fst modes) == length xs =
     do
-      children <- sequence $ [mixedRadixRecurse childOffset childSkipFactor
-                                   (tail modes) subList
-                               | (childOffset, subList) <- zip childOffsets subLists
-                             ]
+      children <- sequence [ mixedRadixRecurse childOffset childSkipFactor
+                               (tail modes) subList
+                             | (childOffset, subList) <- zip childOffsets subLists
+                           ]
       return $ Node (Nothing, childOffsets, childSkipFactor, dif) children
   | otherwise                                    =
       Left "mixedRadixTree(): Product of radices must equal length of input."
@@ -214,12 +233,12 @@ mixedRadixRecurse myOffset mySkipFactor modes xs
         skipFactor      | dif       = 1
                         | otherwise = radix
         offsets         | dif       = [i * childLen | i <- [0..(radix - 1)]]
-                        | otherwise = [i            | i <- [0..(radix - 1)]]
-        childLen = (length xs) `div` radix
+                        | otherwise = [0..(radix - 1)]
+        childLen = length xs `div` radix
         radix    = fst $ head modes
         dif      = snd $ head modes
 
--- dotLogTree converts a GenericLogTree to a GraphViz dot diagram.
+-- | Converts a GenericLogTree to a GraphViz dot diagram.
 
 dotLogTree :: (Show a, LogTree t a) => Either String t -> String
 dotLogTree (Left msg)   = header
@@ -248,39 +267,38 @@ dotLogTreeRecurse :: (Show a, LogTree t a) => String -> t -> String
 dotLogTreeRecurse nodeID (Node (Just x,      offsets,    _,   _)        _) = -- leaf
     -- Just draw myself.
     "\"node" ++ nodeID ++ "\" [label = \"<f0> "
-    ++ "[" ++ (show $ head offsets) ++ "] " ++ (show x)
+    ++ "[" ++ show (head offsets) ++ "] " ++ show x
     ++ "\" shape = \"record\"];\n"
 dotLogTreeRecurse nodeID (Node (     _, childOffsets, skip, dif) children) = -- ordinary node
     -- Draw myself.
-    "\"node" ++ nodeID ++ "\" [label = \"<f0> " ++ (show (head res))
-    ++ (concat [" | <f" ++ (show k) ++ "> " ++ (show val)
-                 | (val, k) <- zip (tail res) [1..]])
+    "\"node" ++ nodeID ++ "\" [label = \"<f0> " ++ show (head res)
+    ++ concat [" | <f" ++ show k ++ "> " ++ show val
+                 | (val, k) <- zip (tail res) [1..]]
     ++ "\" shape = \"record\"];\n"
     -- Draw children.
-    ++ (concatMap (uncurry dotLogTreeRecurse)
-                  [(childID, child) | (childID, child) <- zip childIDs children])
+    ++ concatMap (uncurry dotLogTreeRecurse)
+                  [(childID, child) | (childID, child) <- zip childIDs children]
     -- Draw my connections to my children.
-    ++ (unlines [ concatMap (drawConnection nodeID num_child_elems k) childIDs
+    ++ unlines [ concatMap (drawConnection nodeID num_child_elems k) childIDs
                   |  k        <- [0..(num_elems - 1)]
-                   , twiddle  <- do let res | k >= (num_child_elems) = "\"W(" ++ (show num_elems) ++ ", "
-                                                                     ++ (show (k `mod` num_child_elems)) ++ ")\""
+                   , twiddle  <- do let res | k >= num_child_elems = "\"W(" ++ show num_elems ++ ", "
+                                                                     ++ show (k `mod` num_child_elems) ++ ")\""
                                             | otherwise   = "\"\""
                                     return res
                    , opt_sign <- do let res | ((-1) ^ (k `div` num_child_elems)) < 0 = "\"(-)\""
                                             | otherwise                              = "\"\""
                                     return res
-                ]
-       )
-    where num_elems       = (length children) * num_child_elems
-          num_child_elems = length $ head $ reverse $ levels $ head children
-          childIDs        = [nodeID ++ (show i) | i <- [0..((length children) - 1)]]
+               ]
+    where num_elems       = length children * num_child_elems
+          num_child_elems = length $ last(levels $ head children)
+          childIDs        = [nodeID ++ show i | i <- [0..(length children - 1)]]
           res             = evalNode $ Node (Nothing, childOffsets, skip, dif) children
 
 drawConnection nodeID num_child_elems k childID =
-    "\"node"     ++ nodeID  ++ "\":f" ++ (show k) ++
-    " -> \"node" ++ childID ++ "\":f" ++ (show (k `mod` num_child_elems)) ++
+    "\"node"     ++ nodeID  ++ "\":f" ++ show k ++
+    " -> \"node" ++ childID ++ "\":f" ++ show (k `mod` num_child_elems) ++
     ":e" ++
-    " [id = \"" ++ nodeID ++ childID ++ (show k) ++ "\"" ++
+    " [id = \"" ++ nodeID ++ childID ++ show k ++ "\"" ++
     ", decorate = \"true\"" ++
     ", dir = \"back\"];\n"
 --                  ++ ", sametail = \"" ++ nodeID ++ lID ++ (show k) ++ "\""

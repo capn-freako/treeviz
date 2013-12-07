@@ -1,36 +1,40 @@
-name: DivideAndConquer
+name: treeviz
 version: 0.0.1
-cabal-version: >=1.2
+cabal-version: >=1.8
 build-type: Simple
-license: AllRightsReserved
-license-file: ""
+license: BSD3
+license-file: LICENSE
 copyright: Copyright (c) 2013 David Banas; all rights reserved World wide.
 maintainer: capn.freako@gmail.com
 stability: Experimental
-synopsis: Work/depth analysis of divide and conquer algorithms
-description: This Haskell package provides some tools for analyzing the work/depth
+synopsis: Visualization of computation decomposition trees.
+description: This Haskell package provides some tools for visualizing the decomposition
              of different divide and conquer algorithms.
-category: Algorithms
+category: Algorithm Visualization
 author: David B. Banas
 data-dir: ""
+extra-source-files: README TODO
  
 library
-    build-depends: QuickCheck -any, base -any, containers -any
+    build-depends: QuickCheck -any, base >=2 && <4, containers -any,
+                   random -any
     exposed-modules: Data.Tree.LogTree
     exposed: True
     buildable: True
     cpp-options: -DMAIN_FUNCTION=testMain
     hs-source-dirs: src
  
-executable DivideAndConquer
-    build-depends: QuickCheck -any, base -any, containers -any
+executable treeviz
+    build-depends: QuickCheck -any, base >=2 && <4, containers -any,
+                   random -any
     main-is: Main.hs
     buildable: True
     hs-source-dirs: src
     other-modules: Data.Tree.LogTree
  
-test-suite test-DivideAndConquer
-    build-depends: QuickCheck -any, base -any, containers -any
+test-suite test-treeviz
+    build-depends: QuickCheck -any, base >=2 && <4, containers -any,
+                   random -any
     type: exitcode-stdio-1.0
     main-is: Main.hs
     buildable: True

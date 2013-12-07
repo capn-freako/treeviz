@@ -17,10 +17,13 @@ module Main (
     main
 ) where
 
-import Control.Monad (unless, forM_)
-import Data.List (stripPrefix)
+import Control.Monad (unless, forM_, liftM2)
+import Data.List (stripPrefix, elem)
 import Data.Complex
 import System.Exit (exitFailure)
+import System.Random (randoms, randomRs, getStdRandom)
+import Test.QuickCheck (choose, vectorOf, elements, collect)
+import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.All (quickCheckAll)
 import Data.Tree(drawTree, levels, flatten)
 import Data.Tree.LogTree( buildTree, dotLogTree, newFFTTree
@@ -29,18 +32,8 @@ import Data.Tree.LogTree( buildTree, dotLogTree, newFFTTree
 -- Global constants
 kDotFileName = "test.dot"
 
--- Test vectors
-tData_1  = newTreeData [(2, False), (2, False), (2, False)] [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-answer_1 = [8.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-tData_2  = newTreeData [(2, True), (2, True), (2, True)] [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-answer_2 = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-tData_3  = newTreeData [(2, True), (2, True), (2, True)] [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
-answer_3 = [0.0, 0.0, 0.0, 0.0, 8.0, 0.0, 0.0, 0.0]
-tData_4  = newTreeData [(2, False), (2, False), (2, False)] [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
-answer_4 = [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
-
 -- Determines whether two floating point vectors are "equal".
-floatMatch :: [Complex Float] -> [Complex Float] -> Bool
+floatMatch :: [Complex Double] -> [Complex Double] -> Bool
 floatMatch []     []     = True
 floatMatch []     (y:ys) = False
 floatMatch (x:xs) []     = False
@@ -48,19 +41,76 @@ floatMatch xs     ys     = error < (0.0001 * signal) -- .01% or -40dB
     where error  = sum $ map ((** 2) . realPart . abs) [y - x | (x, y) <- zip xs ys]
           signal = sum $ map ((** 2) . realPart . abs) xs
 
--- QuickCheck propositions
-prop_fft_test_1 = floatMatch (getEval $ buildTree newFFTTree tData_1)
-                             answer_1
-prop_fft_test_2 = floatMatch (getEval $ buildTree newFFTTree tData_2)
-                             answer_2
-prop_fft_test_3 = floatMatch (getEval $ buildTree newFFTTree tData_3)
-                             answer_3
-prop_fft_test_4 = floatMatch (getEval $ buildTree newFFTTree tData_4)
-                             answer_4
+-- Determines the prime factors of an integer.
+primeFactors :: Int -> [Int]
+primeFactors n
+    | isPrime n = [n]
+    | otherwise = primeDivisor : primeFactors result
+        where result       = n `div` primeDivisor
+              primeDivisor = head $ filter ((== 0) . (n `mod`)) primes
+
+-- Tests an integer for primeness.
+isPrime :: Int -> Bool
+isPrime n = elem n $ takeWhile (<= n) primes
+
+-- Prime generator. (Sieve of Eratosthenes)
+primes :: [Int]
+primes = primesRecurse [2..]
+
+primesRecurse :: [Int] -> [Int]
+primesRecurse ns = n : primesRecurse ms
+    where n  = head ns
+          ms = filter ((/= 0) . (`mod` n)) ns
+
+-- Discrete Fourier Transform (DFT)
+-- O(n^2)
+dft :: [Complex Double] -> [Complex Double]
+dft xs = [ sum [ x * exp((0.0 :+ (-1.0)) * 2 * pi / lenXs * fromIntegral(k * n))
+                 | (x, n) <- zip xs [0..]
+               ]
+           | k <- [0..(length xs - 1)]
+         ]
+    where lenXs = fromIntegral $ length xs
+
+-- QuickCheck types & propositions
+newtype FFTTestVal = FFTTestVal {
+    getVal :: ([Complex Double], [(Int, Bool)])
+} deriving (Show)
+instance Arbitrary FFTTestVal where
+    arbitrary = do
+        n      <- choose (2, 100)
+        let radices = primeFactors n
+        rValues <- vectorOf                n $ choose (-1.0, 1.0)
+        let values = map (:+ 0.0) rValues
+        -- This doesnt work, although I think it should; why not?:
+        --difs   <- vectorOf (length radices) $ elements [True, False]
+        dif <- elements [True, False]
+        let difs = replicate (length radices) dif
+        return $ FFTTestVal (values, zip radices difs)
+
+prop_fft_test testVal = collect (length values) $ collect modes $
+    floatMatch (getEval $ buildTree newFFTTree tData) answer
+    where types  = testVal :: FFTTestVal
+          tData  = newTreeData modes values
+          modes  = snd $ getVal testVal
+          values = fst $ getVal testVal
+          answer = dft values
+
+--- Test vectors
+--tData1  = newTreeData [(2, False), (2, False), (2, False)] [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+tData1  = newTreeData [(2, True), (2, False), (2, False)] [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+answer1 = [8.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+tData2  = newTreeData [(2, True), (2, True), (2, True)] [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+answer2 = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+tData3  = newTreeData [(2, True), (2, True), (2, True)] [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
+answer3 = [0.0, 0.0, 0.0, 0.0, 8.0, 0.0, 0.0, 0.0]
+tData4  = newTreeData [(2, False), (2, False), (2, False)] [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
+answer4 = [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
+tData5  = newTreeData [(2, True), (2, True), (2, False)] [3.000651293151413e-2 :+ 0.0,(-0.40689552869429835) :+ 0.0,(-7.699660989251922e-2) :+ 0.0,0.5722622492704406 :+ 0.0,0.9132167229339474 :+ 0.0,0.7459175605048463 :+ 0.0,0.3074622261846285 :+ 0.0,(-0.9358905129416841) :+ 0.0]
 
 -- Main
 exeMain = do
-    let tData  = tData_4
+    let tData  = tData5
     let tree   = buildTree newFFTTree tData
     let res    = getEval tree
     writeFile kDotFileName $ dotLogTree tree
