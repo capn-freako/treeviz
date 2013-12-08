@@ -1,5 +1,5 @@
 name: treeviz
-version: 0.0.1
+version: 0.0.2
 cabal-version: >=1.8
 build-type: Simple
 license: BSD3
@@ -12,9 +12,10 @@ description: This Haskell package provides some tools for visualizing the decomp
              of different divide and conquer algorithms.
 category: Algorithm Visualization
 author: David B. Banas
+tested-with: GHC -any
 data-dir: ""
 extra-source-files: README TODO
- 
+
 library
     build-depends: QuickCheck -any, base >=2 && <4, containers -any,
                    random -any
@@ -23,7 +24,7 @@ library
     buildable: True
     cpp-options: -DMAIN_FUNCTION=testMain
     hs-source-dirs: src
- 
+
 executable treeviz
     build-depends: QuickCheck -any, base >=2 && <4, containers -any,
                    random -any
@@ -31,7 +32,7 @@ executable treeviz
     buildable: True
     hs-source-dirs: src
     other-modules: Data.Tree.LogTree
- 
+
 test-suite test-treeviz
     build-depends: QuickCheck -any, base >=2 && <4, containers -any,
                    random -any
@@ -40,3 +41,13 @@ test-suite test-treeviz
     buildable: True
     cpp-options: -DMAIN_FUNCTION=testMain
     hs-source-dirs: src
+
+source-repository head
+  type:     git
+  location: git://github.com/capn-freako/treeviz.git
+
+source-repository this
+  type:     git
+  location: git://github.com/capn-freako/treeviz.git
+  tag:      v0.0.2
+

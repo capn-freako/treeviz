@@ -1,18 +1,8 @@
-This is the `DivideAndConquer` library, written by David Banas.
+This is the `TreeViz` library, written by David Banas.
 
 For more info, please, see the comments in `Data/Tree/LogTree.hs`.
 Alternatively, view the Haddock generated HTML documentation:
   $ cabal haddock
-
-For information on the community support infrastructure for this library,
-view the home page for this library:
-  http://www.haskell.org/haskellwiki/DivideAndConquer
-
-There you will find links to:
-- mailing list
-- blog
-- bug tracker
-- etc.
 
 For usage examples, please, see:
 - src/Main.hs
