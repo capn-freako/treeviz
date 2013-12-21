@@ -15,39 +15,38 @@ author: David B. Banas
 tested-with: GHC -any
 data-dir: ""
 extra-source-files: README TODO
-
+ 
+source-repository head
+    type: git
+    location: git://github.com/capn-freako/treeviz.git
+ 
+source-repository this
+    type: git
+    location: git://github.com/capn-freako/treeviz.git
+    tag: v0.0.2
+ 
 library
-    build-depends: QuickCheck -any, base >=2 && <4, containers -any,
-                   random -any
+    build-depends: QuickCheck -any, base >=2 && <5, containers -any,
+                   mtl -any, random -any
     exposed-modules: Data.Tree.LogTree
     exposed: True
     buildable: True
     cpp-options: -DMAIN_FUNCTION=testMain
     hs-source-dirs: src
-
+ 
 executable treeviz
-    build-depends: QuickCheck -any, base >=2 && <4, containers -any,
-                   random -any
+    build-depends: QuickCheck -any, base >=2 && <5, containers -any,
+                   mtl -any, random -any
     main-is: Main.hs
     buildable: True
     hs-source-dirs: src
     other-modules: Data.Tree.LogTree
-
+ 
 test-suite test-treeviz
-    build-depends: QuickCheck -any, base >=2 && <4, containers -any,
-                   random -any
+    build-depends: QuickCheck -any, base >=2 && <5, containers -any,
+                   mtl -any, random -any
     type: exitcode-stdio-1.0
     main-is: Main.hs
     buildable: True
     cpp-options: -DMAIN_FUNCTION=testMain
     hs-source-dirs: src
-
-source-repository head
-  type:     git
-  location: git://github.com/capn-freako/treeviz.git
-
-source-repository this
-  type:     git
-  location: git://github.com/capn-freako/treeviz.git
-  tag:      v0.0.2
-

@@ -33,6 +33,7 @@ import Data.Complex
 import Data.Tree
 import Data.List
 import Text.Printf (printf, PrintfArg)
+import Control.Monad.State.Lazy
 
 -- Data.Tree.LogTree - a class of tree structures representing logarithmic
 --                     decomposition of arbitrary radix and using either
@@ -238,14 +239,31 @@ mixedRadixRecurse myOffset mySkipFactor modes xs
         radix    = fst $ head modes
         dif      = snd $ head modes
 
--- | Converts a GenericLogTree to a GraphViz dot diagram.
+-- This data type enumerates the possible computational operations performed
+-- by a computational node.
+data CompOp = Sum
+            | Prod
+-- our computational node type; tuple members are:
+-- - list of pairs uniquely identifying the node by its inputs;
+--   pair members are:
+--   - node ID
+--   - field ID
+-- - list of multiplicative coefficients to be applied to the inputs
+-- - list of computational operations to be used to generate outputs
+--
+-- All 3 lists should have the same length.
+--type CompNode a  = ([(Int, Int)], [a], [CompOp])
+type CompNode a  = ([(String, String)], [a], [CompOp])
+--type FFTCompNode = CompNode (Complex Double)
 
+-- | Converts a GenericLogTree to a GraphViz dot diagram.
 dotLogTree :: (Show a, LogTree t a) => Either String t -> String
 dotLogTree (Left msg)   = header
  ++ "\"node0\" [label = \"" ++ msg ++ "\"]\n"
  ++ "}\n"
 dotLogTree (Right tree) = header
- ++ dotLogTreeRecurse "0" tree
+-- ++ dotLogTreeRecurse "0" tree
+ ++ evalState (dotLogTreeRecurse "0" tree) []
  ++ "}\n"
 
 header = "digraph g { \n \
@@ -258,52 +276,103 @@ header = "digraph g { \n \
  \       shape = \"ellipse\" \n \
  \       height = \"0.3\" \n \
  \   ]; \n \
- \   edge [ \n \
- \   ];\n \
- \   ranksep = \"1.5\" \
- \   nodesep = \"0\""
+ \   ranksep = \"1.5\";\n \
+ \   nodesep = \"0\";\n"
+-- \   edge [ \n \
+-- \   ];\n \
 
-dotLogTreeRecurse :: (Show a, LogTree t a) => String -> t -> String
-dotLogTreeRecurse nodeID (Node (Just x,      offsets,    _,   _)        _) = -- leaf
+dotLogTreeRecurse :: (Show a, LogTree t a) => String -> t -> State [CompNode a] String
+dotLogTreeRecurse nodeID (Node (Just x,      offsets,    _,   _)        _) = do -- leaf
     -- Just draw myself.
-    "\"node" ++ nodeID ++ "\" [label = \"<f0> "
-    ++ "[" ++ show (head offsets) ++ "] " ++ show x
-    ++ "\" shape = \"record\"];\n"
-dotLogTreeRecurse nodeID (Node (     _, childOffsets, skip, dif) children) = -- ordinary node
+    return $ "\"node" ++ nodeID ++ "\" [label = \"<f0> "
+        ++ "[" ++ show (head offsets) ++ "] " ++ show x
+        ++ "\" shape = \"record\"];\n"
+dotLogTreeRecurse nodeID (Node (     _, childOffsets, skip, dif) children) = do -- ordinary node
     -- Draw myself.
-    "\"node" ++ nodeID ++ "\" [label = \"<f0> " ++ show (head res)
-    ++ concat [" | <f" ++ show k ++ "> " ++ show val
-                 | (val, k) <- zip (tail res) [1..]]
-    ++ "\" shape = \"record\"];\n"
+    let selfStr =
+            "\"node" ++ nodeID ++ "\" [label = \"<f0> "
+            ++ show (head res)
+            ++ (concat [" | <f" ++ show k ++ "> " ++ show val
+                         | (val, k) <- zip (tail res) [1..]])
+            ++ "\" shape = \"record\"];\n"
     -- Draw children.
-    ++ concatMap (uncurry dotLogTreeRecurse)
-                  [(childID, child) | (childID, child) <- zip childIDs children]
+    childrenStr <- do
+      liftM concat $
+        mapM (\(childID, child) ->
+          do curState <- get
+             let (childStr, newState) =
+                   runState (dotLogTreeRecurse childID child) curState
+             put newState
+             return childStr
+          ) [(childID, child) | (childID, child) <- zip childIDs children]
     -- Draw my connections to my children.
-    ++ unlines [ concatMap (drawConnection nodeID num_child_elems k) childIDs
-                  |  k        <- [0..(num_elems - 1)]
-                   , twiddle  <- do let res | k >= num_child_elems = "\"W(" ++ show num_elems ++ ", "
-                                                                     ++ show (k `mod` num_child_elems) ++ ")\""
-                                            | otherwise   = "\"\""
-                                    return res
-                   , opt_sign <- do let res | ((-1) ^ (k `div` num_child_elems)) < 0 = "\"(-)\""
-                                            | otherwise                              = "\"\""
-                                    return res
-               ]
+    conStrs <-
+        forM [0..(num_elems - 1)] (\k -> do
+            curState <- get
+            let ((compNodeID, compNodeDrawStr), newState) =
+                    runState (getCompNodeID (k `mod` num_child_elems) childIDs)
+                              curState
+            put newState
+            return $ compNodeDrawStr ++ (drawConnection nodeID k compNodeID)
+                                  )
+    -- Return the concatenation of all substrings.
+    return (selfStr ++ childrenStr ++ (concat conStrs))
     where num_elems       = length children * num_child_elems
           num_child_elems = length $ last(levels $ head children)
           childIDs        = [nodeID ++ show i | i <- [0..(length children - 1)]]
           res             = evalNode $ Node (Nothing, childOffsets, skip, dif) children
+          drawConnection nodeID k compNodeID =
+              "\"node"     ++ nodeID  ++ "\":f" ++ show k
+           ++ " -> \"node" ++ compNodeID
+--            " [id = \"" ++ nodeID ++ childID ++ show k ++ "\"" ++
+--            ", decorate = \"true\"" ++
+           ++ " [dir = \"back\"];\n"
+        --                  ++ ", sametail = \"" ++ nodeID ++ lID ++ (show k) ++ "\""
+        --                  ++ ", taillabel = " ++ opt_sign
+        --                  ++ ", headlabel = " ++ twiddle
+          getCompNodeID :: Int -> [String] -> State [CompNode a] (String, String)
+          getCompNodeID k childIDs = do
+            compNodes <- get
+            let (newCompNodes, compNodeID, compNodeDrawStr) = fetchCompNodeID k childIDs compNodes
+            put newCompNodes
+            return (compNodeID, compNodeDrawStr)
+          fetchCompNodeID :: Int -> [String] -> [CompNode a]
+                          -> ([CompNode a], String, String)
+          fetchCompNodeID k childIDs compNodes =
+            case (findCompNode 0 inputList compNodes) of
+              Just foundNodeID -> ( compNodes
+                                  , show foundNodeID
+                                  , "" -- We don't need to draw anything, if
+                                  )    -- the computational node already exists.
+              Nothing          -> ( compNodes ++ [(inputList, coeffs, ops)]
+                                  , newNodeID
+                                  , drawStr
+                                  )
+                where drawStr   = "\"node1" ++ newNodeID ++ "\""
+                               ++ " [shape = \"circle\"]"
+                               ++ ";\n"
+                               ++ (unlines [ "\"node1" ++ newNodeID ++ "\""
+                                          ++ " -> "
+                                          ++ "\"node" ++ (fst input) ++ "\""
+                                          ++ ":f" ++ (snd input)
+                                            | input <- inputList
+                                           ])
+--                               ++ ";\n"
+                      newNodeID = show $ length compNodes
+--                      coeffs    = replicate (length inputList) 1::a
+                      coeffs    = []
+                      ops       = replicate (length inputList) Sum
+            where inputList = [ (nodeID, fieldID)
+                               | (nodeID, fieldID) <- zip childIDs $
+                                                          repeat $ show k
+                              ]
 
-drawConnection nodeID num_child_elems k childID =
-    "\"node"     ++ nodeID  ++ "\":f" ++ show k ++
-    " -> \"node" ++ childID ++ "\":f" ++ show (k `mod` num_child_elems) ++
-    ":e" ++
-    " [id = \"" ++ nodeID ++ childID ++ show k ++ "\"" ++
-    ", decorate = \"true\"" ++
-    ", dir = \"back\"];\n"
---                  ++ ", sametail = \"" ++ nodeID ++ lID ++ (show k) ++ "\""
---                  ++ ", taillabel = " ++ opt_sign
---                  ++ ", headlabel = " ++ twiddle
+          findCompNode :: Int -> [(String, String)] -> [CompNode a] -> Maybe Int
+          findCompNode _ _ [] = Nothing
+          findCompNode index inputList ((inputs, _, _):cns) =
+            if all (== True) [inputItem `elem` inputs | inputItem <- inputList]
+            then Just index
+            else findCompNode (index + 1) inputList cns
 
 -- Helper function to grab a node's value.
 getValue :: LogTree t a => t -> Maybe a

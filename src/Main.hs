@@ -100,17 +100,19 @@ prop_fft_test testVal = collect (length values) $ collect modes $
 --tData1  = newTreeData [(2, False), (2, False), (2, False)] [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 tData1  = newTreeData [(2, True), (2, False), (2, False)] [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 answer1 = [8.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-tData2  = newTreeData [(2, True), (2, True), (2, True)] [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+tData2  = newTreeData [(2, False), (2, False), (2, False)] [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 answer2 = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 tData3  = newTreeData [(2, True), (2, True), (2, True)] [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
 answer3 = [0.0, 0.0, 0.0, 0.0, 8.0, 0.0, 0.0, 0.0]
 tData4  = newTreeData [(2, False), (2, False), (2, False)] [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
 answer4 = [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
 tData5  = newTreeData [(2, True), (2, True), (2, False)] [3.000651293151413e-2 :+ 0.0,(-0.40689552869429835) :+ 0.0,(-7.699660989251922e-2) :+ 0.0,0.5722622492704406 :+ 0.0,0.9132167229339474 :+ 0.0,0.7459175605048463 :+ 0.0,0.3074622261846285 :+ 0.0,(-0.9358905129416841) :+ 0.0]
+tData6  = newTreeData [(2, False), (5, False)]
+                      [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
 
 -- Main
 exeMain = do
-    let tData  = tData5
+    let tData  = tData6
     let tree   = buildTree newFFTTree tData
     let res    = getEval tree
     writeFile kDotFileName $ dotLogTree tree
