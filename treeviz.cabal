@@ -33,6 +33,7 @@ library
     buildable: True
     cpp-options: -DMAIN_FUNCTION=testMain
     hs-source-dirs: src
+    other-modules: PrettyDouble
  
 executable treeviz
     build-depends: QuickCheck -any, base >=2 && <5, containers -any,
@@ -40,7 +41,7 @@ executable treeviz
     main-is: Main.hs
     buildable: True
     hs-source-dirs: src
-    other-modules: Data.Tree.LogTree
+    other-modules: PrettyDouble Data.Tree.LogTree
  
 test-suite test-treeviz
     build-depends: QuickCheck -any, base >=2 && <5, containers -any,

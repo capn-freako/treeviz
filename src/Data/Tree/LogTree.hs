@@ -6,7 +6,8 @@
            , FunctionalDependencies
            , TypeFamilies
            , Rank2Types
-           #-}
+           , GeneralizedNewtypeDeriving
+  #-}
 
 -----------------------------------------------------------------------------
 --
@@ -27,6 +28,7 @@ module Data.Tree.LogTree (
   , buildTree,   newFFTTree
   , getLevels,   getFlatten, getEval
   , modes,       values
+  , PrettyDouble(..)
 ) where
 
 import Data.Complex
@@ -62,10 +64,22 @@ class (t ~ GenericLogTree a) => LogTree t a | t -> a where
     --            of the original type.
     evalNode :: t -> [a]
 
+-- This custom type wrapper around Double allows me to control how they're
+-- printed, in order to generate a nicer graph.
+newtype PrettyDouble = PrettyDouble {
+    value :: Double
+  } deriving (Num, Eq, Ord, Fractional, Floating, Real, RealFrac, RealFloat)
+instance Show PrettyDouble where
+    show = (printf "%10.3g") . zeroThresh . value
+        where zeroThresh y =
+                if ((abs y) < 1.0e-10)
+                then 0.0
+                else y
+
 -- FFTTree - an instance of LogTree, this type represents the Fast Fourier
 --           Transform (FFT) of arbitrary radix and decimation scheme.
-type FFTTree = GenericLogTree (Complex Double)
-instance LogTree FFTTree (Complex Double) where
+type FFTTree = GenericLogTree (Complex PrettyDouble)
+instance LogTree FFTTree (Complex PrettyDouble) where
     evalNode (Node (Just x,  _, _,   _)        _) = [x]
     evalNode (Node (     _,  _, _, dif) children) =
         foldl (zipWith (+)) [0.0 | n <- [1..nodeLen]]
@@ -186,7 +200,15 @@ newtype TreeBuilder t = TreeBuilder {
 --   (FFT) decomposition trees of arbitrary radices and either decimation
 --   style (i.e. - DIT or DIF).
 newFFTTree :: TreeBuilder FFTTree
-newFFTTree = TreeBuilder buildMixedRadixTree
+--newFFTTree = TreeBuilder ( buildMixedRadixTree . makePrettyData )
+newFFTTree = TreeBuilder ( buildMixedRadixTree )
+--newFFTTree = TreeBuilder ( fmap (fmap PrettyDouble) . buildMixedRadixTree )
+--    where makePrettyData td = TreeData {
+--                                  modes  = oldModes
+--                                , values = newValues
+--                              }
+--              where oldModes  = modes td
+--                    newValues = map (fmap PrettyDouble) (values td)
 
 -- mixedRadixTree Takes a list of values, along with a list of "radix /
 --                decimation-style" preferences, and constructs the tree
