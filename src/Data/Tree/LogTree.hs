@@ -1,12 +1,8 @@
 {-# LANGUAGE FlexibleContexts
-           , UndecidableInstances
-           , TypeSynonymInstances
            , FlexibleInstances
-           , MultiParamTypeClasses
            , FunctionalDependencies
            , TypeFamilies
            , Rank2Types
-           , GeneralizedNewtypeDeriving
   #-}
 
 -----------------------------------------------------------------------------
@@ -28,7 +24,6 @@ module Data.Tree.LogTree (
   , buildTree,   newFFTTree
   , getLevels,   getFlatten, getEval
   , modes,       values
-  , PrettyDouble(..)
 ) where
 
 import Data.Complex
@@ -36,6 +31,7 @@ import Data.Tree
 import Data.List
 import Text.Printf (printf, PrintfArg)
 import Control.Monad.State.Lazy
+import Data.Newtypes.PrettyDouble (PrettyDouble(..))
 
 -- Data.Tree.LogTree - a class of tree structures representing logarithmic
 --                     decomposition of arbitrary radix and using either
@@ -63,18 +59,6 @@ class (t ~ GenericLogTree a) => LogTree t a | t -> a where
     -- evalNode - Evaluates a node in a tree, returning a list of values
     --            of the original type.
     evalNode :: t -> [a]
-
--- This custom type wrapper around Double allows me to control how they're
--- printed, in order to generate a nicer graph.
-newtype PrettyDouble = PrettyDouble {
-    value :: Double
-  } deriving (Num, Eq, Ord, Fractional, Floating, Real, RealFrac, RealFloat)
-instance Show PrettyDouble where
-    show = (printf "%10.3g") . zeroThresh . value
-        where zeroThresh y =
-                if ((abs y) < 1.0e-10)
-                then 0.0
-                else y
 
 -- FFTTree - an instance of LogTree, this type represents the Fast Fourier
 --           Transform (FFT) of arbitrary radix and decimation scheme.
@@ -200,15 +184,12 @@ newtype TreeBuilder t = TreeBuilder {
 --   (FFT) decomposition trees of arbitrary radices and either decimation
 --   style (i.e. - DIT or DIF).
 newFFTTree :: TreeBuilder FFTTree
---newFFTTree = TreeBuilder ( buildMixedRadixTree . makePrettyData )
-newFFTTree = TreeBuilder ( buildMixedRadixTree )
---newFFTTree = TreeBuilder ( fmap (fmap PrettyDouble) . buildMixedRadixTree )
---    where makePrettyData td = TreeData {
---                                  modes  = oldModes
---                                , values = newValues
---                              }
---              where oldModes  = modes td
---                    newValues = map (fmap PrettyDouble) (values td)
+newFFTTree = TreeBuilder buildMixedRadixTree
+
+buildMixedRadixTree :: TreeData a -> Either String (GenericLogTree a)
+buildMixedRadixTree td = mixedRadixTree td_modes td_values
+    where td_modes  = modes td
+          td_values = values td
 
 -- mixedRadixTree Takes a list of values, along with a list of "radix /
 --                decimation-style" preferences, and constructs the tree
@@ -222,11 +203,6 @@ newFFTTree = TreeBuilder ( buildMixedRadixTree )
 --                            the Bool tells whether DIF is to be used.)
 --
 --   xs    :: [a]           - the list of values to be decomposed.
-
-buildMixedRadixTree :: TreeData a -> Either String (GenericLogTree a)
-buildMixedRadixTree td = mixedRadixTree td_modes td_values
-    where td_modes  = modes td
-          td_values = values td
 
 mixedRadixTree :: [(Int, Bool)] -> [a] -> Either String (GenericLogTree a)
 mixedRadixTree _     []  = Left "mixedRadixTree(): called with empty list."
@@ -276,7 +252,6 @@ data CompOp = Sum
 -- All 3 lists should have the same length.
 --type CompNode a  = ([(Int, Int)], [a], [CompOp])
 type CompNode a  = ([(String, String)], [a], [CompOp])
---type FFTCompNode = CompNode (Complex Double)
 
 -- | Converts a GenericLogTree to a GraphViz dot diagram.
 dotLogTree :: (Show a, LogTree t a) => Either String t -> String
@@ -284,7 +259,6 @@ dotLogTree (Left msg)   = header
  ++ "\"node0\" [label = \"" ++ msg ++ "\"]\n"
  ++ "}\n"
 dotLogTree (Right tree) = header
--- ++ dotLogTreeRecurse "0" tree
  ++ evalState (dotLogTreeRecurse "0" tree) []
  ++ "}\n"
 
@@ -295,16 +269,17 @@ header = "digraph g { \n \
  \   ]; \n \
  \   node [ \n \
  \       fontsize = \"16\" \n \
- \       shape = \"ellipse\" \n \
+ \       shape = \"circle\" \n \
  \       height = \"0.3\" \n \
  \   ]; \n \
  \   ranksep = \"1.5\";\n \
- \   nodesep = \"0\";\n"
--- \   edge [ \n \
--- \   ];\n \
+ \   nodesep = \"0\";\n \
+ \   edge [ \n \
+ \       dir = \"back\" \n \
+ \   ];\n"
 
 dotLogTreeRecurse :: (Show a, LogTree t a) => String -> t -> State [CompNode a] String
-dotLogTreeRecurse nodeID (Node (Just x,      offsets,    _,   _)        _) = do -- leaf
+dotLogTreeRecurse nodeID (Node (Just x,      offsets,    _,   _)        _) =    -- leaf
     -- Just draw myself.
     return $ "\"node" ++ nodeID ++ "\" [label = \"<f0> "
         ++ "[" ++ show (head offsets) ++ "] " ++ show x
@@ -314,11 +289,11 @@ dotLogTreeRecurse nodeID (Node (     _, childOffsets, skip, dif) children) = do 
     let selfStr =
             "\"node" ++ nodeID ++ "\" [label = \"<f0> "
             ++ show (head res)
-            ++ (concat [" | <f" ++ show k ++ "> " ++ show val
-                         | (val, k) <- zip (tail res) [1..]])
+            ++ concat [" | <f" ++ show k ++ "> " ++ show val
+                        | (val, k) <- zip (tail res) [1..]]
             ++ "\" shape = \"record\"];\n"
     -- Draw children.
-    childrenStr <- do
+    childrenStr <-
       liftM concat $
         mapM (\(childID, child) ->
           do curState <- get
@@ -335,23 +310,18 @@ dotLogTreeRecurse nodeID (Node (     _, childOffsets, skip, dif) children) = do 
                     runState (getCompNodeID (k `mod` num_child_elems) childIDs)
                               curState
             put newState
-            return $ compNodeDrawStr ++ (drawConnection nodeID k compNodeID)
+            return $ compNodeDrawStr ++ drawConnection nodeID k compNodeID
                                   )
     -- Return the concatenation of all substrings.
-    return (selfStr ++ childrenStr ++ (concat conStrs))
+    return (selfStr ++ childrenStr ++ concat conStrs)
     where num_elems       = length children * num_child_elems
           num_child_elems = length $ last(levels $ head children)
           childIDs        = [nodeID ++ show i | i <- [0..(length children - 1)]]
           res             = evalNode $ Node (Nothing, childOffsets, skip, dif) children
           drawConnection nodeID k compNodeID =
               "\"node"     ++ nodeID  ++ "\":f" ++ show k
-           ++ " -> \"node" ++ compNodeID
---            " [id = \"" ++ nodeID ++ childID ++ show k ++ "\"" ++
---            ", decorate = \"true\"" ++
-           ++ " [dir = \"back\"];\n"
-        --                  ++ ", sametail = \"" ++ nodeID ++ lID ++ (show k) ++ "\""
-        --                  ++ ", taillabel = " ++ opt_sign
-        --                  ++ ", headlabel = " ++ twiddle
+           ++ " -> \"node" ++ compNodeID ++ "\""
+           ++ ";\n"
           getCompNodeID :: Int -> [String] -> State [CompNode a] (String, String)
           getCompNodeID k childIDs = do
             compNodes <- get
@@ -361,27 +331,30 @@ dotLogTreeRecurse nodeID (Node (     _, childOffsets, skip, dif) children) = do 
           fetchCompNodeID :: Int -> [String] -> [CompNode a]
                           -> ([CompNode a], String, String)
           fetchCompNodeID k childIDs compNodes =
-            case (findCompNode 0 inputList compNodes) of
+            case findCompNode 0 inputList compNodes of
               Just foundNodeID -> ( compNodes
-                                  , show foundNodeID
+                                  , '1' : show foundNodeID
                                   , "" -- We don't need to draw anything, if
                                   )    -- the computational node already exists.
               Nothing          -> ( compNodes ++ [(inputList, coeffs, ops)]
                                   , newNodeID
                                   , drawStr
                                   )
-                where drawStr   = "\"node1" ++ newNodeID ++ "\""
-                               ++ " [shape = \"circle\"]"
-                               ++ ";\n"
-                               ++ (unlines [ "\"node1" ++ newNodeID ++ "\""
+                where drawStr   = "\"node" ++ newNodeID ++ "\""
+                               ++ "[label = \".\""
+                               ++ ", shape = \"circle\""
+                               ++ ", height = \"0.25\""
+                               ++ ", fixedsize = \"true\""
+                               ++ "];\n"
+                               ++ unlines [ "\"node" ++ newNodeID ++ "\""
                                           ++ " -> "
-                                          ++ "\"node" ++ (fst input) ++ "\""
-                                          ++ ":f" ++ (snd input)
+                                          ++ "\"node" ++ fst input ++ "\""
+                                          ++ ":f" ++ snd input
+                                          ++ ":e"
+                                          ++ ";\n"
                                             | input <- inputList
-                                           ])
---                               ++ ";\n"
-                      newNodeID = show $ length compNodes
---                      coeffs    = replicate (length inputList) 1::a
+                                           ]
+                      newNodeID = '1' : show (length compNodes)
                       coeffs    = []
                       ops       = replicate (length inputList) Sum
             where inputList = [ (nodeID, fieldID)
