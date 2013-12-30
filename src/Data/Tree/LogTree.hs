@@ -52,21 +52,31 @@ import Data.Newtypes.PrettyDouble (PrettyDouble(..))
 --      which should also equal the length of the second element in the
 --      Tree type tuple.
 
+data CompOp = Sum -- Enumerates the possible computational operations performed by a computational node.
+            | Prod
+    deriving (Eq)
+-- Our computational node type; tuple members are:
+-- - type of operation (i.e. - CompOp)
+-- - list of multiplicative coefficients (type a) to be applied to the inputs
+--
+-- Each tuple in the list corresponds to a unique element of the output list.
+type CompNodeOutput a = (CompOp, [a])
+type CompNode a        = [CompNodeOutput a]
+
 type GenericLogTree a = Tree (Maybe a, [Int], Int, Bool)
 
 class (t ~ GenericLogTree a) => LogTree t a | t -> a where
-
-    -- evalNode - Evaluates a node in a tree, returning a list of values
-    --            of the original type.
-    evalNode :: t -> [a]
+    evalNode     :: t -> [a]          -- Evaluates a node in a tree, returning a list of values of the original type.
+    getCompNodes :: t -> [CompNode a] -- Returns the complete list of computational nodes required, in order to
+                                      -- evaluate the tree.
 
 -- FFTTree - an instance of LogTree, this type represents the Fast Fourier
 --           Transform (FFT) of arbitrary radix and decimation scheme.
 type FFTTree = GenericLogTree (Complex PrettyDouble)
 instance LogTree FFTTree (Complex PrettyDouble) where
-    evalNode (Node (Just x,  _, _,   _)        _) = [x]
-    evalNode (Node (     _,  _, _, dif) children) =
-        foldl (zipWith (+)) [0.0 | n <- [1..nodeLen]]
+    evalNode (Node (Just x,  _, _,   _)        _) = [x] -- The evaluation of a leaf is itself.
+    evalNode (Node (     _,  _, _, dif) children) =     -- Sub-trees are evaluated recursively, but require inclusion
+        foldl (zipWith (+)) [0.0 | n <- [1..nodeLen]]   -- of `phasors' & potential `twiddle factors'.
           $ zipWith (zipWith (*)) subTransforms phasors
       where subTransforms =
               if dif then
@@ -92,6 +102,21 @@ instance LogTree FFTTree (Complex PrettyDouble) where
                              * fromIntegral m * fromIntegral n)
                            | n <- [0..(childLen - 1)]]
                          | m <- [0..(radix - 1)]]
+
+    getCompNodes (Node ( Just x, _, _,   _)        _) = [] -- A leaf requires no computational nodes.
+    getCompNodes (Node (Nothing, _, _, dif) children) =
+        [ [ (Sum, [ cis (-2.0 * pi * k * r / degree)
+                    | r <- map fromIntegral [0..(radix - 1)]
+                  ]
+            )
+            | k <- map fromIntegral [childLen * r + m | r <- [0..(radix - 1)]]
+          ]
+          | m <- map fromIntegral [0..(childLen - 1)]
+        ] where childLen = fromIntegral $ length $ last(levels $ head children)
+                radix    = length children
+                nodeLen  = childLen * radix
+                degree   | dif       = fromIntegral radix
+                         | otherwise = fromIntegral nodeLen
 
 -- coProd   - Produces a new tree, where the elements are the products
 --            of the original elements and the elements of a list.
@@ -237,30 +262,33 @@ mixedRadixRecurse myOffset mySkipFactor modes xs
         radix    = fst $ head modes
         dif      = snd $ head modes
 
--- This data type enumerates the possible computational operations performed
--- by a computational node.
-data CompOp = Sum
-            | Prod
--- our computational node type; tuple members are:
--- - list of pairs uniquely identifying the node by its inputs;
---   pair members are:
---   - node ID
---   - field ID
--- - list of multiplicative coefficients to be applied to the inputs
--- - list of computational operations to be used to generate outputs
---
--- All 3 lists should have the same length.
---type CompNode a  = ([(Int, Int)], [a], [CompOp])
-type CompNode a  = ([(String, String)], [a], [CompOp])
-
 -- | Converts a GenericLogTree to a GraphViz dot diagram.
-dotLogTree :: (Show a, LogTree t a) => Either String t -> String
+dotLogTree :: (Show a, Eq a, LogTree t a) => Either String t -> String
 dotLogTree (Left msg)   = header
  ++ "\"node0\" [label = \"" ++ msg ++ "\"]\n"
  ++ "}\n"
 dotLogTree (Right tree) = header
- ++ evalState (dotLogTreeRecurse "0" tree) []
+ ++ treeStr
+ ++ compNodeLegend
  ++ "}\n"
+    where (treeStr, compNodeTypes) = runState (dotLogTreeRecurse "0" (getCompNodes tree) tree) []
+          compNodeLegend = "\"node0L\"" ++ " [label = \"<f0>Computational Node Types \\ \n"
+            ++ unlines indexedStrs ++ "\""
+            ++ ", shape = \"record\""
+            ++ "];\n"
+          indexedStrs = map (\(str, ind) -> "| <f" ++ show ind ++ ">" ++ str) $ zip legendStrs [1..]
+          legendStrs  = concatMap (\(nodeType, typeInd) ->
+            ("  " ++ show typeInd ++ ": \\") : (outSpecs nodeType)
+                                  ) $ zip compNodeTypes [0..]
+          outSpecs :: (Show a) => CompNode a -> [String]
+          outSpecs nodeOutputs = map (\(nodeOutput, yInd) ->
+            let opStr = case (fst nodeOutput) of
+                                        Sum  -> " + "
+                                        Prod -> " * "
+            in (printf "    y%d = " yInd)
+                 ++ (intercalate opStr $ map (\(coeff, k) -> "(" ++ show coeff ++ printf ") * x%d" k)
+                                            $ zip (snd nodeOutput) [(0::Int)..]) ++ " \\"
+                                     ) $ zip nodeOutputs [(0::Int)..]
 
 header = "digraph g { \n \
  \   graph [ \n \
@@ -278,13 +306,18 @@ header = "digraph g { \n \
  \       dir = \"back\" \n \
  \   ];\n"
 
-dotLogTreeRecurse :: (Show a, LogTree t a) => String -> t -> State [CompNode a] String
-dotLogTreeRecurse nodeID (Node (Just x,      offsets,    _,   _)        _) =    -- leaf
+-- The two [CompNode a]s here are confusing. The one that comes in as
+-- the second argument to the function is the actual list of computational
+-- nodes in the diagram. The one that is the accumulated state of the State
+-- monad is a list of the different TYPES of computational nodes required,
+-- in order to evaluate the tree.
+dotLogTreeRecurse :: (Show a, Eq a, LogTree t a) => String -> [CompNode a] -> t -> State [CompNode a] String
+dotLogTreeRecurse nodeID         _ (Node (Just x,      offsets,    _,   _)        _) =    -- leaf
     -- Just draw myself.
     return $ "\"node" ++ nodeID ++ "\" [label = \"<f0> "
         ++ "[" ++ show (head offsets) ++ "] " ++ show x
         ++ "\" shape = \"record\"];\n"
-dotLogTreeRecurse nodeID (Node (     _, childOffsets, skip, dif) children) = do -- ordinary node
+dotLogTreeRecurse nodeID compNodes (Node (     _, childOffsets, skip, dif) children) = do -- ordinary node
     -- Draw myself.
     let selfStr =
             "\"node" ++ nodeID ++ "\" [label = \"<f0> "
@@ -293,81 +326,58 @@ dotLogTreeRecurse nodeID (Node (     _, childOffsets, skip, dif) children) = do 
                         | (val, k) <- zip (tail res) [1..]]
             ++ "\" shape = \"record\"];\n"
     -- Draw children.
-    childrenStr <-
+    childrenStr <- do
       liftM concat $
         mapM (\(childID, child) ->
           do curState <- get
              let (childStr, newState) =
-                   runState (dotLogTreeRecurse childID child) curState
+                   runState (dotLogTreeRecurse childID (getCompNodes child) child) curState
              put newState
              return childStr
           ) [(childID, child) | (childID, child) <- zip childIDs children]
-    -- Draw my connections to my children.
-    conStrs <-
-        forM [0..(num_elems - 1)] (\k -> do
+    -- Draw computation nodes between me and my children.
+    compNodeStrs <- do
+        forM (zip compNodes [0..]) (\(compNode, k') -> do
+            let compNodeID = nodeID ++ "C" ++ show k'
             curState <- get
-            let ((compNodeID, compNodeDrawStr), newState) =
-                    runState (getCompNodeID (k `mod` num_child_elems) childIDs)
-                              curState
+            let (compNodeType, newState) = runState (getCompNodeType compNode) curState
             put newState
-            return $ compNodeDrawStr ++ drawConnection nodeID k compNodeID
-                                  )
+            return $ "\"node" ++ compNodeID ++ "\""
+               ++ " [label = \"" ++ show compNodeType ++ "\""
+               ++ ", shape = \"circle\""
+               ++ ", height = \"0.1\"" -- Just making sure it's as small as possible.
+               ++ "];\n")
+    -- Draw the connections.
+    let conexStrs = [
+            "\"node" ++ nodeID  ++ "\":f" ++ show (r * childLen + k')
+         ++ " -> \"node" ++ nodeID ++ "C" ++ show k' ++ "\";\n"
+         ++ "\"node" ++ nodeID ++ "C" ++ show k' ++ "\""
+         ++ " -> \"node" ++ nodeID ++ show r ++ "\":f" ++ show k' ++ ";\n"
+            | k' <- [0..(length compNodes - 1)]
+            , r  <- [0..(length children - 1)]
+                    ]
     -- Return the concatenation of all substrings.
-    return (selfStr ++ childrenStr ++ concat conStrs)
-    where num_elems       = length children * num_child_elems
-          num_child_elems = length $ last(levels $ head children)
-          childIDs        = [nodeID ++ show i | i <- [0..(length children - 1)]]
+    return (selfStr ++ childrenStr ++ concat compNodeStrs ++ concat conexStrs)
+    where childIDs        = [nodeID ++ show i | i <- [0..(length children - 1)]]
+          childLen        = fromIntegral $ length $ last(levels $ head children)
           res             = evalNode $ Node (Nothing, childOffsets, skip, dif) children
-          drawConnection nodeID k compNodeID =
-              "\"node"     ++ nodeID  ++ "\":f" ++ show k
-           ++ " -> \"node" ++ compNodeID ++ "\""
-           ++ ";\n"
-          getCompNodeID :: Int -> [String] -> State [CompNode a] (String, String)
-          getCompNodeID k childIDs = do
+          getCompNodeType :: Eq a => CompNode a -> State [CompNode a] Int
+          getCompNodeType compNode = do
             compNodes <- get
-            let (newCompNodes, compNodeID, compNodeDrawStr) = fetchCompNodeID k childIDs compNodes
+            let (newCompNodes, compNodeType) = fetchCompNodeType compNode compNodes
             put newCompNodes
-            return (compNodeID, compNodeDrawStr)
-          fetchCompNodeID :: Int -> [String] -> [CompNode a]
-                          -> ([CompNode a], String, String)
-          fetchCompNodeID k childIDs compNodes =
-            case findCompNode 0 inputList compNodes of
-              Just foundNodeID -> ( compNodes
-                                  , '1' : show foundNodeID
-                                  , "" -- We don't need to draw anything, if
-                                  )    -- the computational node already exists.
-              Nothing          -> ( compNodes ++ [(inputList, coeffs, ops)]
-                                  , newNodeID
-                                  , drawStr
-                                  )
-                where drawStr   = "\"node" ++ newNodeID ++ "\""
-                               ++ "[label = \".\""
-                               ++ ", shape = \"circle\""
-                               ++ ", height = \"0.25\""
-                               ++ ", fixedsize = \"true\""
-                               ++ "];\n"
-                               ++ unlines [ "\"node" ++ newNodeID ++ "\""
-                                          ++ " -> "
-                                          ++ "\"node" ++ fst input ++ "\""
-                                          ++ ":f" ++ snd input
-                                          ++ ":e"
-                                          ++ ";\n"
-                                            | input <- inputList
-                                           ]
-                      newNodeID = '1' : show (length compNodes)
-                      coeffs    = []
-                      ops       = replicate (length inputList) Sum
-            where inputList = [ (nodeID, fieldID)
-                               | (nodeID, fieldID) <- zip childIDs $
-                                                          repeat $ show k
-                              ]
-
-          findCompNode :: Int -> [(String, String)] -> [CompNode a] -> Maybe Int
-          findCompNode _ _ [] = Nothing
-          findCompNode index inputList ((inputs, _, _):cns) =
-            if all (== True) [inputItem `elem` inputs | inputItem <- inputList]
+            return compNodeType
+          fetchCompNodeType :: Eq a => CompNode a -> [CompNode a] -> ([CompNode a], Int)
+          fetchCompNodeType compNode compNodes =
+            case findCompNode 0 compNode compNodes of
+              Just compNodeIndex -> (compNodes, compNodeIndex)
+              Nothing            -> (compNodes ++ [compNode], length compNodes)
+          findCompNode :: Eq a => Int -> CompNode a -> [CompNode a] -> Maybe Int
+          findCompNode     _        _         [] = Nothing
+          findCompNode index compNode (cn : cns) =
+            if  compNode == cn
             then Just index
-            else findCompNode (index + 1) inputList cns
+            else findCompNode (index + 1) compNode cns
 
 -- Helper function to grab a node's value.
 getValue :: LogTree t a => t -> Maybe a

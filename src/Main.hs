@@ -121,7 +121,7 @@ tData6  = newTreeData [(2, False), (5, False)]
 
 -- Main
 exeMain = do
-    let tData  = tData6
+    let tData  = tData2
     let tree   = buildTree newFFTTree tData
     let res    = getEval tree
     writeFile kDotFileName $ dotLogTree tree
