@@ -31,7 +31,8 @@ import Data.Tree.LogTree (buildTree, dotLogTree, newFFTTree
 import Data.Newtypes.PrettyDouble (PrettyDouble(..))
 
 -- Global constants
-kDotFileName = "test.dot"
+treeFileName   = "tree.gv"
+legendFileName = "legend.gv"
 
 -- Determines whether two floating point vectors are "equal".
 --
@@ -124,7 +125,9 @@ exeMain = do
     let tData  = tData2
     let tree   = buildTree newFFTTree tData
     let res    = getEval tree
-    writeFile kDotFileName $ dotLogTree tree
+    let (treePlot, legendPlot) = dotLogTree tree
+    writeFile treeFileName   treePlot
+    writeFile legendFileName legendPlot
 
 -- Entry point for unit tests.
 testMain = do

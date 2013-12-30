@@ -263,34 +263,43 @@ mixedRadixRecurse myOffset mySkipFactor modes xs
         dif      = snd $ head modes
 
 -- | Converts a GenericLogTree to a GraphViz dot diagram.
-dotLogTree :: (Show a, Eq a, LogTree t a) => Either String t -> String
-dotLogTree (Left msg)   = header
+dotLogTree :: (Show a, Eq a, LogTree t a) => Either String t -> (String, String)
+dotLogTree (Left msg)   = (header
  ++ "\"node0\" [label = \"" ++ msg ++ "\"]\n"
- ++ "}\n"
-dotLogTree (Right tree) = header
+ ++ "}\n", "")
+dotLogTree (Right tree) = (header
  ++ treeStr
- ++ compNodeLegend
- ++ "}\n"
+ ++ "}\n",
+ compNodeLegend)
     where (treeStr, compNodeTypes) = runState (dotLogTreeRecurse "0" (getCompNodes tree) tree) []
-          compNodeLegend = "\"node0L\"" ++ " [label = \"<f0>Computational Node Types \\ \n"
-            ++ unlines indexedStrs ++ "\""
-            ++ ", shape = \"record\""
-            ++ "];\n"
-          indexedStrs = map (\(str, ind) -> "| <f" ++ show ind ++ ">" ++ str) $ zip legendStrs [1..]
-          legendStrs  = concatMap (\(nodeType, typeInd) ->
-            ("  " ++ show typeInd ++ ": \\") : (outSpecs nodeType)
+          compNodeLegend = "digraph {\n"
+            ++ "label = \"Computational Node Legend\" fontsize = \"24\"\n"
+            ++ "\"node0L\""
+            ++ " [label = <<table border=\"0\" cellborder=\"0\" cellpadding=\"3\" bgcolor=\"white\"> \\ \n"
+            ++ unlines indexedStrs
+            ++ "</table>>, shape = \"Mrecord\""
+            ++ "];\n}\n"
+          indexedStrs = map (\str -> "<tr> \\ \n" ++ str ++ "</tr> \\") legendStrs
+          legendStrs  = map (\(nodeType, typeInd) ->
+            concat $ ("  <td align=\"right\">" ++ show typeInd ++ ":</td> \\ \n") : outSpecs nodeType
                                   ) $ zip compNodeTypes [0..]
           outSpecs :: (Show a) => CompNode a -> [String]
           outSpecs nodeOutputs = map (\(nodeOutput, yInd) ->
-            let opStr = case (fst nodeOutput) of
+            let opStr = case fst nodeOutput of
                                         Sum  -> " + "
                                         Prod -> " * "
-            in (printf "    y%d = " yInd)
-                 ++ (intercalate opStr $ map (\(coeff, k) -> "(" ++ show coeff ++ printf ") * x%d" k)
-                                            $ zip (snd nodeOutput) [(0::Int)..]) ++ " \\"
+            in "    <td align=\"left\">y" ++ show yInd ++ " = "
+                 ++ intercalate opStr (map (\(coeff, k) -> "(" ++ show coeff ++ printf ") * x%d" k)
+                                             $ zip (snd nodeOutput) [(0::Int)..])
+                 ++ "</td> \\ \n"
                                      ) $ zip nodeOutputs [(0::Int)..]
 
 header = "digraph g { \n \
+ \   ranksep = \"1.5\";\n \
+ \   nodesep = \"0\";\n \
+ \   label = \"Divide & Conquer Processing Graph\";\n \
+ \   labelloc = \"t\";\n \
+ \   fontsize = \"28\" \n \
  \   graph [ \n \
  \       rankdir = \"RL\" \n \
  \       splines = \"false\" \n \
@@ -300,8 +309,6 @@ header = "digraph g { \n \
  \       shape = \"circle\" \n \
  \       height = \"0.3\" \n \
  \   ]; \n \
- \   ranksep = \"1.5\";\n \
- \   nodesep = \"0\";\n \
  \   edge [ \n \
  \       dir = \"back\" \n \
  \   ];\n"
@@ -326,8 +333,7 @@ dotLogTreeRecurse nodeID compNodes (Node (     _, childOffsets, skip, dif) child
                         | (val, k) <- zip (tail res) [1..]]
             ++ "\" shape = \"record\"];\n"
     -- Draw children.
-    childrenStr <- do
-      liftM concat $
+    childrenStr <- liftM concat $
         mapM (\(childID, child) ->
           do curState <- get
              let (childStr, newState) =
@@ -336,8 +342,7 @@ dotLogTreeRecurse nodeID compNodes (Node (     _, childOffsets, skip, dif) child
              return childStr
           ) [(childID, child) | (childID, child) <- zip childIDs children]
     -- Draw computation nodes between me and my children.
-    compNodeStrs <- do
-        forM (zip compNodes [0..]) (\(compNode, k') -> do
+    compNodeStrs <- forM (zip compNodes [0..]) (\(compNode, k') -> do
             let compNodeID = nodeID ++ "C" ++ show k'
             curState <- get
             let (compNodeType, newState) = runState (getCompNodeType compNode) curState
@@ -350,9 +355,11 @@ dotLogTreeRecurse nodeID compNodes (Node (     _, childOffsets, skip, dif) child
     -- Draw the connections.
     let conexStrs = [
             "\"node" ++ nodeID  ++ "\":f" ++ show (r * childLen + k')
-         ++ " -> \"node" ++ nodeID ++ "C" ++ show k' ++ "\";\n"
+         ++ " -> \"node" ++ nodeID ++ "C" ++ show k' ++ "\""
+         ++ " [headlabel = \"y" ++ show r ++ "\" labelangle = \"-30\" labeldistance = \"2\"];\n"
          ++ "\"node" ++ nodeID ++ "C" ++ show k' ++ "\""
-         ++ " -> \"node" ++ nodeID ++ show r ++ "\":f" ++ show k' ++ ";\n"
+         ++ " -> \"node" ++ nodeID ++ show r ++ "\":f" ++ show k'
+         ++ " [taillabel = \"x" ++ show r ++ "\" labelangle = \"20\" labeldistance = \"2.5\"];\n"
             | k' <- [0..(length compNodes - 1)]
             , r  <- [0..(length children - 1)]
                     ]

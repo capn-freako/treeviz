@@ -25,7 +25,7 @@ newtype PrettyDouble = PrettyDouble {
     value :: Double
   } deriving (Num, Eq, Ord, Fractional, Floating, Real, RealFrac, RealFloat)
 instance Show PrettyDouble where
-    show = printf "%10.3g" . zeroThresh . value
+    show = printf "%6.3g" . zeroThresh . value
         where zeroThresh y =
                 if abs y < 1.0e-10
                 then 0.0

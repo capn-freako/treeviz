@@ -1,5 +1,5 @@
 name: treeviz
-version: 0.0.3
+version: 0.0.4
 cabal-version: >=1.8
 build-type: Simple
 license: BSD3
