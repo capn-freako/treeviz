@@ -211,28 +211,58 @@ newtype TreeBuilder t = TreeBuilder {
 newFFTTree :: TreeBuilder FFTTree
 newFFTTree = TreeBuilder buildMixedRadixTree
 
+-- Presumably, future contributors will add new tree types, by declaring
+-- new instances of `LogTree', along with associated definitions of
+-- `evalNode' and `getCompNodes'. Because we're using data abstraction
+-- to preserve the integrity and longevity of the interface, those new
+-- instances will require new, user accessible helper functions, like
+-- `newFFTTree', above. The following template is provided, for guidance.
+--
+-- newFooTree :: TreeBuilder FooTree
+-- newFooTree = TreeBuilder buildMixedRadixTree
+--
+-- Note that the only difference is the type parameter, `t', supplied
+-- to `TreeBuilder'. This is because these helper functions are really
+-- just conduits of type information, which allow the compiler to:
+--  - correctly overload `evalNode' and `getCompNodes', and
+--  - correctly type cast the list of user input values, which are
+--    often untyped floating point constants.
+-- (At least, I think that's what's going on; gurus?)
+
+-- This "helper shim" just isolates the complicated type signature of
+-- the recursive tree building function, `mixedRadixRecurse', from the
+-- abstracted tree construction machinery, above. It does this in two ways:
+--  - It supplies the '0' and '1', which are always the same in the
+--    first call to `mixedRadixRecurse', and
+--  - it performs the deconstruction of the TreeData structure, so that
+--    that deconstruction has to occur neither above, where it would
+--    pollute the simplicity of the interface, nor below, where it would
+--    be expensive, since `mixedRadixRecurse' is recursive.
 buildMixedRadixTree :: TreeData a -> Either String (GenericLogTree a)
-buildMixedRadixTree td = mixedRadixTree td_modes td_values
+buildMixedRadixTree td = mixedRadixRecurse 0 1 td_modes td_values
     where td_modes  = modes td
           td_values = values td
 
--- mixedRadixTree Takes a list of values, along with a list of "radix /
---                decimation-style" preferences, and constructs the tree
---                representing the mixed radix, mixed decimation style
---                decomposition of the list for processing.
+-- mixedRadixRecurse Recursively constructs the tree representing the
+--                   mixed radix, mixed decimation style decomposition
+--                   of the list for processing.
 --
 -- Arguments:
+--
+--   myOffset :: Int        - The offset, in the original list of values,
+--                            of the first element of `xs'.
+--                            (Maintained for graphing purposes.)
+--
+--   mySkipFactor :: Int    - The distance, in the original list of values,
+--                            between consecutive elements of `xs'.
+--                            (Maintained for graphing purposes.)
+--
 --   modes :: [(Int, Bool)] - list of pairs defining the desired radix and
 --                            decimation style for the successive levels of
 --                            the decomposition. (The Int gives the radix, and
 --                            the Bool tells whether DIF is to be used.)
 --
 --   xs    :: [a]           - the list of values to be decomposed.
-
-mixedRadixTree :: [(Int, Bool)] -> [a] -> Either String (GenericLogTree a)
-mixedRadixTree _     []  = Left "mixedRadixTree(): called with empty list."
-mixedRadixTree _     [x] = return $ Node (Just x, [], 0, False) []
-mixedRadixTree modes xs  = mixedRadixRecurse 0 1 modes xs
 
 mixedRadixRecurse :: Int -> Int -> [(Int, Bool)] -> [a] -> Either String (GenericLogTree a)
 mixedRadixRecurse _ _ _ []  = Left "mixedRadixRecurse(): called with empty list."
@@ -246,7 +276,7 @@ mixedRadixRecurse myOffset mySkipFactor modes xs
                            ]
       return $ Node (Nothing, childOffsets, childSkipFactor, dif) children
   | otherwise                                    =
-      Left "mixedRadixTree(): Product of radices must equal length of input."
+      Left "mixedRadixRecurse: Product of radices must equal length of input."
   where subLists = [ [xs !! (offset + i * skipFactor) | i <- [0..(childLen - 1)]]
                      | offset <- offsets
                    ]
@@ -400,4 +430,4 @@ getLevels (Left msg)   = [] -- Can't figure out how to usefully cary `msg' forwa
 getLevels (Right tree) = levels tree
 
 getFlatten (Left msg)   = [] -- (as above)
-getFlatten (Right tree) = levels tree
+getFlatten (Right tree) = flatten tree
