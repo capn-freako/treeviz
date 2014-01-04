@@ -65,11 +65,13 @@ type CompNode a       = [CompNodeOutput a]
 
 type GenericLogTree a = Tree (Maybe a, [Int], Int, Bool)
 
-class (t ~ GenericLogTree a) => LogTree t a | t -> a where
-    evalNode     :: t -> [a]          -- Evaluates a node in a tree, returning a list of values of the original type.
-    getTwiddles  :: t -> [[a]]        -- Returns any necessary "twiddle" factors, for DIF decomposition.
-    getCompNodes :: t -> [CompNode a] -- Returns the complete list of computational nodes required, in order to
-                                      -- evaluate the tree.
+class (Show a, t ~ GenericLogTree a) => LogTree t a | t -> a where
+    evalNode       :: t -> [a]          -- Evaluates a node in a tree, returning a list of values of the original type.
+    getTwiddles    :: t -> [[a]]        -- Returns any necessary "twiddle" factors, for DIF decomposition.
+    getTwiddleStrs :: t -> [[String]]   -- Returns the string representations of the twiddle factors.
+    getTwiddleStrs = map (map show) . getTwiddles
+    getCompNodes   :: t -> [CompNode a] -- Returns the complete list of computational nodes required, in order to
+                                        -- evaluate the tree.
 
 -- FFTTree - an instance of LogTree, this type represents the Fast Fourier
 --           Transform (FFT) of arbitrary radix and decimation scheme.
@@ -111,6 +113,11 @@ instance LogTree FFTTree (Complex PrettyDouble) where
         where nodeLen  = childLen * radix
               childLen = length $ last(levels $ head children)
               radix    = length children
+
+    getTwiddleStrs (Node (     _,  _, _, dif) children) =
+        if dif
+          then map (map ((\str -> " [" ++ str ++ "]") . show)) $ getTwiddles (Node (Nothing, [], 0, dif) children)
+          else [["" | i <- [1..(length (last (levels child)))]] | child <- children]
 
     getCompNodes (Node ( Just x, _, _,   _)        _) = [] -- A leaf requires no computational nodes.
     getCompNodes (Node (Nothing, _, _, dif) children) =
@@ -271,7 +278,8 @@ buildMixedRadixTree td = mixedRadixRecurse 0 1 td_modes td_values
 --                            the decomposition. (The Int gives the radix, and
 --                            the Bool tells whether DIF is to be used.)
 --
---   xs    :: [a]           - the list of values to be decomposed.
+--   xs :: [a]              - the list of values to be decomposed.
+--                            (i.e. - the seed of the tree)
 
 mixedRadixRecurse :: Int -> Int -> [(Int, Bool)] -> [a] -> Either String (GenericLogTree a)
 mixedRadixRecurse _ _ _ []  = Left "mixedRadixRecurse(): called with empty list."
@@ -312,7 +320,7 @@ dotLogTree (Right tree) = (header
  compNodeLegend)
     where (treeStr, compNodeTypes) = runState (dotLogTreeRecurse "0" (getCompNodes tree) tree twiddles) []
           -- This is just a convenient way to get a list of correctly typed "1.0"s of the correct length:
-          twiddles       = concat $ getTwiddles $ Node (Nothing, [], 0, False) $ subForest tree
+          twiddles       = concat $ getTwiddleStrs $ Node (Nothing, [], 0, False) $ subForest tree
           nodeLen        = fromIntegral $ length $ last (levels tree)
           compNodeLegend = "digraph {\n"
             ++ "label = \"Computational Node Legend\" fontsize = \"24\"\n"
@@ -358,20 +366,20 @@ header = "digraph g { \n \
 -- The two [CompNode a]s here are confusing. The one that comes in as
 -- the second argument to the function is the actual list of computational
 -- nodes in the diagram. The one that is the accumulated state of the State
-dotLogTreeRecurse :: (Show a, Eq a, LogTree t a) => String -> [CompNode a] -> t -> [a] -> State [CompNode a] String
+dotLogTreeRecurse :: (Show a, Eq a, LogTree t a) => String -> [CompNode a] -> t -> [String] -> State [CompNode a] String
 -- monad is a list of the different TYPES of computational nodes required,
 -- in order to evaluate the tree.
 dotLogTreeRecurse nodeID         _ (Node (Just x,      offsets,    _,   _)        _) twiddleVec =    -- leaf
     -- Just draw myself.
     return $ "\"node" ++ nodeID ++ "\" [label = \"<f0> "
-        ++ "[" ++ show (head offsets) ++ "] " ++ show x ++ " (" ++ show (head twiddleVec) ++ ")"
+        ++ "[" ++ show (head offsets) ++ "] " ++ show x ++ head twiddleVec
         ++ "\" shape = \"record\"];\n"
 dotLogTreeRecurse nodeID compNodes (Node (     _, childOffsets, skip, dif) children) twiddleVec = do -- ordinary node
     -- Draw myself.
     let selfStr =
             "\"node" ++ nodeID ++ "\" [label = \"<f0> "
-            ++ show (head res) ++ " (" ++ show (head twiddleVec) ++ ")"
-            ++ concat [" | <f" ++ show k ++ "> " ++ show val ++ " (" ++ show twiddle ++ ")"
+            ++ show (head res) ++ head twiddleVec
+            ++ concat [" | <f" ++ show k ++ "> " ++ show val ++ twiddle
                         | ((val, k), twiddle) <- zip (zip (tail res) [1..]) (tail twiddleVec)]
             ++ "\" shape = \"record\"];\n"
     -- Draw children.
@@ -410,7 +418,7 @@ dotLogTreeRecurse nodeID compNodes (Node (     _, childOffsets, skip, dif) child
     where childIDs        = [nodeID ++ show i | i <- [0..(length children - 1)]]
           childLen        = fromIntegral $ length $ last(levels $ head children)
           res             = evalNode $ Node (Nothing, childOffsets, skip, dif) children
-          twiddles        = getTwiddles $ Node (Nothing, [], 0, dif) children
+          twiddles        = getTwiddleStrs $ Node (Nothing, [], 0, dif) children
           getCompNodeType :: Eq a => CompNode a -> State [CompNode a] Int
           getCompNodeType compNode = do
             compNodes <- get

@@ -122,7 +122,7 @@ tData6  = newTreeData [(2, False), (5, False)]
 
 -- Main
 exeMain = do
-    let tData  = tData2
+    let tData  = tData3
     let tree   = buildTree newFFTTree tData
     let res    = getEval tree
     let (treePlot, legendPlot) = dotLogTree tree
