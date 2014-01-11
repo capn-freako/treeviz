@@ -119,10 +119,14 @@ answer4 = [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
 tData5  = newTreeData [(2, True), (2, True), (2, False)] [3.000651293151413e-2 :+ 0.0,(-0.40689552869429835) :+ 0.0,(-7.699660989251922e-2) :+ 0.0,0.5722622492704406 :+ 0.0,0.9132167229339474 :+ 0.0,0.7459175605048463 :+ 0.0,0.3074622261846285 :+ 0.0,(-0.9358905129416841) :+ 0.0]
 tData6  = newTreeData [(2, False), (5, False)]
                       [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
+tData7  = newTreeData [(2, False), (2, False)]
+                      [1.0, 1.0, 1.0, 1.0]
+tData8  = newTreeData [(2, True), (2, True)]
+                      [1.0, 1.0, 1.0, 1.0]
 
 -- Main
 exeMain = do
-    let tData  = tData3
+    let tData  = tData8
     let tree   = buildTree newFFTTree tData
     let res    = getEval tree
     let (treePlot, legendPlot) = dotLogTree tree
