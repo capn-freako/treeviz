@@ -24,6 +24,7 @@ module Data.Tree.LogTree (
   , buildTree,   newFFTTree
   , getLevels,   getFlatten, getEval
   , modes,       values
+  , coProd
 ) where
 
 import Data.Complex
@@ -82,16 +83,16 @@ instance LogTree FFTTree (Complex PrettyDouble) where
         foldl (zipWith (+)) [0.0 | n <- [1..nodeLen]]   -- of `phasors' & potential `twiddle factors'.
           $ zipWith (zipWith (*)) subTransforms phasors
       where subTransforms =
-              if dif then
-                [ concat $ transpose -- i.e. - interleave.
+                [ subCombFunc
                     $ map evalNode
                           [ snd (coProd twiddle child)
                             | twiddle <- twiddles
                           ]
                   | child <- children
                 ]
-              else map (concat . replicate radix) subs
-            subs     = map evalNode children
+            subCombFunc =
+              if dif then concat . transpose -- i.e. - interleave
+                     else concat             -- simple replication, as twiddles are all 1.0 in the DIT case.
             childLen = length $ last(levels $ head children)
             radix    = length children
             nodeLen  = childLen * radix
@@ -107,7 +108,7 @@ instance LogTree FFTTree (Complex PrettyDouble) where
           then [ [ cis((-2.0) * pi / fromIntegral nodeLen * fromIntegral m * fromIntegral n)
                  | n <- [0..(childLen - 1)]]
                    | m <- [0..(radix - 1)]]
-          else [ [ 1.0
+          else [ [ 1.0 :+ 0.0
                  | n <- [0..(childLen - 1)]]
                    | m <- [0..(radix - 1)]]
         where nodeLen  = childLen * radix
@@ -310,7 +311,7 @@ mixedRadixRecurse myOffset mySkipFactor modes xs
         dif      = snd $ head modes
 
 -- | Converts a GenericLogTree to a GraphViz dot diagram.
-dotLogTree :: (Show a, Eq a, LogTree t a) => Either String t -> (String, String)
+dotLogTree :: (Show a, Eq a, Num a, LogTree t a) => Either String t -> (String, String)
 dotLogTree (Left msg)   = (header
  ++ "\"node0\" [label = \"" ++ msg ++ "\"]\n"
  ++ "}\n", "")
@@ -366,9 +367,9 @@ header = "digraph g { \n \
 -- The two [CompNode a]s here are confusing. The one that comes in as
 -- the second argument to the function is the actual list of computational
 -- nodes in the diagram. The one that is the accumulated state of the State
-dotLogTreeRecurse :: (Show a, Eq a, LogTree t a) => String -> [CompNode a] -> t -> [String] -> State [CompNode a] String
 -- monad is a list of the different TYPES of computational nodes required,
 -- in order to evaluate the tree.
+dotLogTreeRecurse :: (Show a, Eq a, Num a, LogTree t a) => String -> [CompNode a] -> t -> [String] -> State [CompNode a] String
 dotLogTreeRecurse nodeID         _ (Node (Just x,      offsets,    _,   _)        _) twiddleVec =    -- leaf
     -- Just draw myself.
     return $ "\"node" ++ nodeID ++ "\" [label = \"<f0> "
@@ -385,12 +386,13 @@ dotLogTreeRecurse nodeID compNodes (Node (     _, childOffsets, skip, dif) child
     -- Draw children.
     childrenStr <- liftM concat $
         mapM (\((childID, child), twiddleVec) ->
-          do curState <- get
-             let (childStr, newState) =
-                   runState (dotLogTreeRecurse childID (getCompNodes child) child twiddleVec) curState
-             put newState
-             return childStr
-          ) [((childID, child), twiddleVec) | ((childID, child), twiddleVec) <- zip (zip childIDs children) twiddles]
+              do curState <- get
+                 let (childStr, newState) =
+                       runState (dotLogTreeRecurse childID (getCompNodes child) child twiddleVec) curState
+                 put newState
+                 return childStr
+--             ) $ zip (zip childIDs children) twiddles
+             ) $ zip (zip childIDs $ map (snd . coProd twiddleChoice) children) twiddles
     -- Draw computation nodes between me and my children.
     compNodeStrs <- forM (zip compNodes [0..]) (\(compNode, k') -> do
             let compNodeID = nodeID ++ "C" ++ show k'
@@ -419,6 +421,8 @@ dotLogTreeRecurse nodeID compNodes (Node (     _, childOffsets, skip, dif) child
           childLen        = fromIntegral $ length $ last(levels $ head children)
           res             = evalNode $ Node (Nothing, childOffsets, skip, dif) children
           twiddles        = getTwiddleStrs $ Node (Nothing, [], 0, dif) children
+          twiddleVals     = getTwiddles $ Node (Nothing, [], 0, dif) children
+          twiddleChoice      = head $ reverse $ twiddleVals
           getCompNodeType :: Eq a => CompNode a -> State [CompNode a] Int
           getCompNodeType compNode = do
             compNodes <- get

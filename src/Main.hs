@@ -74,7 +74,8 @@ primesRecurse ns = n : primesRecurse ms
 -- TODO:
 -- - Undo the hard-wiring to PrettyDouble I had to do, below.
 --dft :: [Complex Double] -> [Complex Double]
-dft :: [Complex PrettyDouble] -> [Complex PrettyDouble]
+--dft :: [Complex PrettyDouble] -> [Complex PrettyDouble]
+dft :: RealFloat a => [Complex a] -> [Complex a]
 dft xs = [ sum [ x * exp((0.0 :+ (-1.0)) * 2 * pi / lenXs * fromIntegral(k * n))
                  | (x, n) <- zip xs [0..]
                ]
@@ -93,7 +94,7 @@ instance Arbitrary FFTTestVal where
         rValues <- vectorOf n $ choose (-1.0, 1.0)
         let values = map ((:+ PrettyDouble 0.0) . PrettyDouble) rValues
         -- This doesnt work, although I think it should; why not?:
-        --difs   <- vectorOf (length radices) $ elements [True, False]
+--        difs   <- vectorOf (length radices) $ elements [True, False]
         dif <- elements [True, False]
         let difs = replicate (length radices) dif
         return $ FFTTestVal (values, zip radices difs)
@@ -108,27 +109,36 @@ prop_fft_test testVal = collect (length values) $ collect modes $
 
 --- Test vectors
 --tData1  = newTreeData [(2, False), (2, False), (2, False)] [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-tData1  = newTreeData [(2, True), (2, False), (2, False)] [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+tData1  = newTreeData [(2, True), (2, True), (2, False)] [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 answer1 = [8.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-tData2  = newTreeData [(2, False), (2, False), (2, False)] [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+tData2  = newTreeData [(2, True), (2, True), (2, False)] [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 answer2 = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-tData3  = newTreeData [(2, True), (2, True), (2, True)] [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
+tData3  = newTreeData [(2, False), (2, True), (2, False)] [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
 answer3 = [0.0, 0.0, 0.0, 0.0, 8.0, 0.0, 0.0, 0.0]
 tData4  = newTreeData [(2, False), (2, False), (2, False)] [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
 answer4 = [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
-tData5  = newTreeData [(2, True), (2, True), (2, False)] [3.000651293151413e-2 :+ 0.0,(-0.40689552869429835) :+ 0.0,(-7.699660989251922e-2) :+ 0.0,0.5722622492704406 :+ 0.0,0.9132167229339474 :+ 0.0,0.7459175605048463 :+ 0.0,0.3074622261846285 :+ 0.0,(-0.9358905129416841) :+ 0.0]
+tData5  = newTreeData [(2, True), (2, False), (2, False)] [3.000651293151413e-2 :+ 0.0,(-0.40689552869429835) :+ 0.0,(-7.699660989251922e-2) :+ 0.0,0.5722622492704406 :+ 0.0,0.9132167229339474 :+ 0.0,0.7459175605048463 :+ 0.0,0.3074622261846285 :+ 0.0,(-0.9358905129416841) :+ 0.0]
+tData5Values  = [3.000651293151413e-2 :+ 0.0,(-0.40689552869429835) :+ 0.0,(-7.699660989251922e-2) :+ 0.0,0.5722622492704406 :+ 0.0,0.9132167229339474 :+ 0.0,0.7459175605048463 :+ 0.0,0.3074622261846285 :+ 0.0,(-0.9358905129416841) :+ 0.0] :: [Complex PrettyDouble]
+answer5 = [1.149 :+ 0.000, (-2.765) :+ 0.133, 0.713 :+ (-0.703), 0.998 :+ (-0.636), 1.198 :+ 0.000, 0.998 :+ 0.636, 0.713 :+ 0.703, (-2.765) :+ (-0.133)]
 tData6  = newTreeData [(2, False), (5, False)]
                       [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
 tData7  = newTreeData [(2, False), (2, False)]
                       [1.0, 1.0, 1.0, 1.0]
-tData8  = newTreeData [(2, True), (2, True)]
+tData8  = newTreeData [(2, True), (2, False)]
                       [1.0, 1.0, 1.0, 1.0]
+tData9  = newTreeData [(2, False), (2, True), (2, False)] [1.0, 1.0, -1.0, -1.0, 1.0, 1.0, -1.0, -1.0]
+answer9 = [0.0, 0.0, 4.0 :+ (-4.0), 0.0, 0.0, 0.0, 4.0 :+ 4.0, 0.0]
 
 -- Main
 exeMain = do
-    let tData  = tData8
+    let tData  = tData5
+    let answer = answer5
     let tree   = buildTree newFFTTree tData
     let res    = getEval tree
+    putStrLn $ "Result = \t\t" ++ show res
+    if  floatMatch answer res
+      then putStrLn "Pass."
+      else putStrLn $ "Fail.\nAnswer = \t" ++ show answer
     let (treePlot, legendPlot) = dotLogTree tree
     writeFile treeFileName   treePlot
     writeFile legendFileName legendPlot
