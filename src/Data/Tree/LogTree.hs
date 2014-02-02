@@ -391,7 +391,6 @@ dotLogTreeRecurse nodeID compNodes (Node (     _, childOffsets, skip, dif) child
                        runState (dotLogTreeRecurse childID (getCompNodes child) child twiddleVec) curState
                  put newState
                  return childStr
---             ) $ zip (zip childIDs children) twiddles
              ) $ zip (zip childIDs $ map (snd . coProd twiddleChoice) children) twiddles
     -- Draw computation nodes between me and my children.
     compNodeStrs <- forM (zip compNodes [0..]) (\(compNode, k') -> do

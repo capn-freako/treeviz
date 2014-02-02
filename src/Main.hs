@@ -34,19 +34,6 @@ import Data.Newtypes.PrettyDouble (PrettyDouble(..))
 treeFileName   = "tree.gv"
 legendFileName = "legend.gv"
 
--- Determines whether two floating point vectors are "equal".
---
--- TODO:
--- - Undo the hard-wiring to PrettyDouble I had to do, below.
---floatMatch :: [Complex Double] -> [Complex Double] -> Bool
-floatMatch :: [Complex PrettyDouble] -> [Complex PrettyDouble] -> Bool
-floatMatch []     []     = True
-floatMatch []     (y:ys) = False
-floatMatch (x:xs) []     = False
-floatMatch xs     ys     = error < (0.0001 * signal) -- .01% or -40dB
-    where error  = sum $ map ((** 2) . realPart . abs) [y - x | (x, y) <- zip xs ys]
-          signal = sum $ map ((** 2) . realPart . abs) xs
-
 -- Determines the prime factors of an integer.
 primeFactors :: Int -> [Int]
 primeFactors n
@@ -71,10 +58,6 @@ primesRecurse ns = n : primesRecurse ms
 -- Discrete Fourier Transform (DFT)
 -- O(n^2)
 --
--- TODO:
--- - Undo the hard-wiring to PrettyDouble I had to do, below.
---dft :: [Complex Double] -> [Complex Double]
---dft :: [Complex PrettyDouble] -> [Complex PrettyDouble]
 dft :: RealFloat a => [Complex a] -> [Complex a]
 dft xs = [ sum [ x * exp((0.0 :+ (-1.0)) * 2 * pi / lenXs * fromIntegral(k * n))
                  | (x, n) <- zip xs [0..]
@@ -100,7 +83,7 @@ instance Arbitrary FFTTestVal where
         return $ FFTTestVal (values, zip radices difs)
 
 prop_fft_test testVal = collect (length values) $ collect modes $
-    floatMatch (getEval $ buildTree newFFTTree tData) answer
+    (getEval $ buildTree newFFTTree tData) == answer
     where types  = testVal :: FFTTestVal
           tData  = newTreeData modes values
           modes  = snd $ getVal testVal
@@ -117,7 +100,7 @@ tData3  = newTreeData [(2, False), (2, True), (2, False)] [1.0, -1.0, 1.0, -1.0,
 answer3 = [0.0, 0.0, 0.0, 0.0, 8.0, 0.0, 0.0, 0.0]
 tData4  = newTreeData [(2, False), (2, False), (2, False)] [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
 answer4 = [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
-tData5  = newTreeData [(2, True), (2, False), (2, False)] [3.000651293151413e-2 :+ 0.0,(-0.40689552869429835) :+ 0.0,(-7.699660989251922e-2) :+ 0.0,0.5722622492704406 :+ 0.0,0.9132167229339474 :+ 0.0,0.7459175605048463 :+ 0.0,0.3074622261846285 :+ 0.0,(-0.9358905129416841) :+ 0.0]
+tData5  = newTreeData [(2, False), (2, False), (2, False)] [3.000651293151413e-2 :+ 0.0,(-0.40689552869429835) :+ 0.0,(-7.699660989251922e-2) :+ 0.0,0.5722622492704406 :+ 0.0,0.9132167229339474 :+ 0.0,0.7459175605048463 :+ 0.0,0.3074622261846285 :+ 0.0,(-0.9358905129416841) :+ 0.0]
 tData5Values  = [3.000651293151413e-2 :+ 0.0,(-0.40689552869429835) :+ 0.0,(-7.699660989251922e-2) :+ 0.0,0.5722622492704406 :+ 0.0,0.9132167229339474 :+ 0.0,0.7459175605048463 :+ 0.0,0.3074622261846285 :+ 0.0,(-0.9358905129416841) :+ 0.0] :: [Complex PrettyDouble]
 answer5 = [1.149 :+ 0.000, (-2.765) :+ 0.133, 0.713 :+ (-0.703), 0.998 :+ (-0.636), 1.198 :+ 0.000, 0.998 :+ 0.636, 0.713 :+ 0.703, (-2.765) :+ (-0.133)]
 tData6  = newTreeData [(2, False), (5, False)]
@@ -136,7 +119,7 @@ exeMain = do
     let tree   = buildTree newFFTTree tData
     let res    = getEval tree
     putStrLn $ "Result = \t\t" ++ show res
-    if  floatMatch answer res
+    if  answer == res
       then putStrLn "Pass."
       else putStrLn $ "Fail.\nAnswer = \t" ++ show answer
     let (treePlot, legendPlot) = dotLogTree tree
