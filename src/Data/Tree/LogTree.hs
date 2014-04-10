@@ -24,7 +24,6 @@ module Data.Tree.LogTree (
   , buildTree,   newFFTTree
   , getLevels,   getFlatten, getEval
   , modes,       values
-  , coProd
 ) where
 
 import Data.Complex
@@ -64,11 +63,12 @@ data CompOp = Sum -- Enumerates the possible computational operations performed 
 type CompNodeOutput a = (CompOp, [a])
 type CompNode a       = [CompNodeOutput a]
 
-type GenericLogTree a = Tree (Maybe a, [Int], Int, Bool)
+type GenericLogTree a = Tree (Maybe (a, [[a]]), [Int], Int, Bool)
 
 class (Show a, t ~ GenericLogTree a) => LogTree t a | t -> a where
-    evalNode       :: t -> [a]          -- Evaluates a node in a tree, returning a list of values of the original type.
+    evalNode       :: (t, [Int]) -> [a] -- Evaluates a node in a tree, returning a list of values of the original type.
     getTwiddles    :: t -> [[a]]        -- Returns any necessary "twiddle" factors, for DIF decomposition.
+    calcTwiddles   :: Bool -> Int -> Int -> [[a]] -- The actual twiddle factor calculator.
     getTwiddleStrs :: t -> [[String]]   -- Returns the string representations of the twiddle factors.
     getTwiddleStrs = map (map show) . getTwiddles
     getCompNodes   :: t -> [CompNode a] -- Returns the complete list of computational nodes required, in order to
@@ -78,21 +78,22 @@ class (Show a, t ~ GenericLogTree a) => LogTree t a | t -> a where
 --           Transform (FFT) of arbitrary radix and decimation scheme.
 type FFTTree = GenericLogTree (Complex PrettyDouble)
 instance LogTree FFTTree (Complex PrettyDouble) where
-    evalNode (Node (Just x,  _, _,   _)        _) = [x] -- The evaluation of a leaf is itself.
-    evalNode (Node (     _,  _, _, dif) children) =     -- Sub-trees are evaluated recursively, but require inclusion
-        foldl (zipWith (+)) [0.0 | n <- [1..nodeLen]]   -- of `phasors' & potential `twiddle factors'.
+    -- The evaluation of a leaf is its value, multiplied by the correct series of accumulated twiddles.
+    evalNode (Node (Just (x, wss),  _, _,   _)        _, ms) = [foldl (*) x (zipWith getItem ms wss)]
+      where getItem m ws = ws !! m
+    -- Sub-trees are evaluated recursively, but require inclusion of `phasors'.
+    evalNode (Node (            _,  _, _, dif) children, ms) =
+        foldl (zipWith (+)) [0.0 | n <- [1..nodeLen]]
           $ zipWith (zipWith (*)) subTransforms phasors
       where subTransforms =
                 [ subCombFunc
                     $ map evalNode
-                          [ snd (coProd twiddle child)
-                            | twiddle <- twiddles
-                          ]
+                          [(child, ms ++ [m]) | m <- [0..(radix - 1)]]
                   | child <- children
                 ]
             subCombFunc =
               if dif then concat . transpose -- i.e. - interleave
-                     else concat             -- simple replication, as twiddles are all 1.0 in the DIT case.
+                     else concat
             childLen = length $ last(levels $ head children)
             radix    = length children
             nodeLen  = childLen * radix
@@ -101,19 +102,20 @@ instance LogTree FFTTree (Complex PrettyDouble) where
                          | r <- [0..(radix - 1)]]
             degree   | dif       = fromIntegral radix
                      | otherwise = fromIntegral nodeLen
-            twiddles = getTwiddles (Node (Nothing, [], 0, dif) children)
 
-    getTwiddles (Node (     _,  _, _, dif) children) =
+    getTwiddles (Node (     _,  _, _, dif) children) = calcTwiddles dif childLen radix
+        where childLen = length $ last(levels $ head children)
+              radix    = length children
+
+    calcTwiddles dif childLen radix =
         if dif
           then [ [ cis((-2.0) * pi / fromIntegral nodeLen * fromIntegral m * fromIntegral n)
-                 | n <- [0..(childLen - 1)]]
-                   | m <- [0..(radix - 1)]]
+                   | n <- [0..(childLen - 1)]]
+                 | m <- [0..(radix - 1)]]
           else [ [ 1.0 :+ 0.0
-                 | n <- [0..(childLen - 1)]]
-                   | m <- [0..(radix - 1)]]
+                   | n <- [0..(childLen - 1)]]
+                 | m <- [0..(radix - 1)]]
         where nodeLen  = childLen * radix
-              childLen = length $ last(levels $ head children)
-              radix    = length children
 
     getTwiddleStrs (Node (     _,  _, _, dif) children) =
         if dif
@@ -134,24 +136,6 @@ instance LogTree FFTTree (Complex PrettyDouble) where
                 nodeLen  = childLen * radix
                 degree   | dif       = fromIntegral radix
                          | otherwise = fromIntegral nodeLen
-
--- coProd   - Produces a new tree, where the elements are the products
---            of the original elements and the elements of a list.
---            Returns the modified tree and any unconsumed list elements.
-coProd :: (Num a, t ~ GenericLogTree a) => [a] -> t -> ([a], t)
-coProd [] (Node (Just x,  offsets, skipFactor,   dif) _) =
-  ([], Node (Just x,  offsets, skipFactor,   dif) [])
-coProd [a] (Node (Just x,  offsets, skipFactor,   dif) _) =
-  ([], Node (Just (a * x),  offsets, skipFactor,   dif) [])
-coProd (a:as) (Node (Just x,  offsets, skipFactor,   dif) _) =
-  (as, Node (Just (a * x),  offsets, skipFactor,   dif) [])
-coProd as (Node (_, offsets, skipFactor, dif) children) =
-  (bs, Node (Nothing, offsets, skipFactor, dif) childProds)
-  where (bs, childProds) = foldl coProdStep (as, []) children
-
-coProdStep :: (Num a, t ~ GenericLogTree a) => ([a], [t]) -> t -> ([a], [t])
-coProdStep (as, ts) t = (bs, ts ++ [t'])
-    where (bs, t') = coProd as t
 
 -- This is the intended user interface for building trees.
 -- It uses the "newtype record syntax" trick of O'Sullivan et al., in
@@ -254,11 +238,12 @@ newFFTTree = TreeBuilder buildMixedRadixTree
 --  - it performs the deconstruction of the TreeData structure, so that
 --    that deconstruction has to occur neither above, where it would
 --    pollute the simplicity of the interface, nor below, where it would
---    be expensive, since `mixedRadixRecurse' is recursive.
-buildMixedRadixTree :: TreeData a -> Either String (GenericLogTree a)
+--    be expensive, since `mixedRadixRecurse' is recursive. As paart of
+--    this step, it primes the twiddles for each value with an empty list.
+buildMixedRadixTree :: (LogTree t a) => TreeData a -> Either String t
 buildMixedRadixTree td = mixedRadixRecurse 0 1 td_modes td_values
     where td_modes  = modes td
-          td_values = values td
+          td_values = zip (values td) (repeat [])
 
 -- mixedRadixRecurse Recursively constructs the tree representing the
 --                   mixed radix, mixed decimation style decomposition
@@ -282,22 +267,27 @@ buildMixedRadixTree td = mixedRadixRecurse 0 1 td_modes td_values
 --   xs :: [a]              - the list of values to be decomposed.
 --                            (i.e. - the seed of the tree)
 
-mixedRadixRecurse :: Int -> Int -> [(Int, Bool)] -> [a] -> Either String (GenericLogTree a)
+mixedRadixRecurse :: (LogTree t a) => Int -> Int -> [(Int, Bool)] -> [(a, [[a]])] -> Either String t
 mixedRadixRecurse _ _ _ []  = Left "mixedRadixRecurse(): called with empty list."
-mixedRadixRecurse myOffset _ _ [x] = return $ Node (Just x, [myOffset], 0, False) []
-mixedRadixRecurse myOffset mySkipFactor modes xs
-  | product (map fst modes) == length xs =
+mixedRadixRecurse myOffset _ _ [(x, ws)] = return $ Node (Just (x, ws), [myOffset], 0, False) []
+mixedRadixRecurse myOffset mySkipFactor modes subComps
+  | product (map fst modes) /= length subComps =
+    Left "mixedRadixRecurse: Product of radices must equal length of input."
+  | otherwise =
     do
       children <- sequence [ mixedRadixRecurse childOffset childSkipFactor
                                (tail modes) subList
                              | (childOffset, subList) <- zip childOffsets subLists
                            ]
       return $ Node (Nothing, childOffsets, childSkipFactor, dif) children
-  | otherwise                                    =
-      Left "mixedRadixRecurse: Product of radices must equal length of input."
-  where subLists = [ [xs !! (offset + i * skipFactor) | i <- [0..(childLen - 1)]]
-                     | offset <- offsets
-                   ]
+  where subLists =
+          [ [ addTwiddle (subComps !! ind) (twiddles' !! (ind `mod` childLen))
+              | i <- [0..(childLen - 1)]
+              , let ind = offset + i * skipFactor
+            ]
+            | offset <- offsets
+          ]
+        addTwiddle (x, ws) w = (x, ws ++ [w])
         childSkipFactor | dif       = mySkipFactor
                         | otherwise = mySkipFactor * radix
         childOffsets    | dif       = [myOffset + (i * mySkipFactor * childLen) | i <- [0..(radix - 1)]]
@@ -306,9 +296,11 @@ mixedRadixRecurse myOffset mySkipFactor modes xs
                         | otherwise = radix
         offsets         | dif       = [i * childLen | i <- [0..(radix - 1)]]
                         | otherwise = [0..(radix - 1)]
-        childLen = length xs `div` radix
+        childLen = length subComps `div` radix
         radix    = fst $ head modes
         dif      = snd $ head modes
+        twiddles = calcTwiddles dif childLen radix
+        twiddles' = transpose twiddles
 
 -- | Converts a GenericLogTree to a GraphViz dot diagram.
 dotLogTree :: (Show a, Eq a, Num a, LogTree t a) => Either String t -> (String, String)
@@ -373,7 +365,7 @@ dotLogTreeRecurse :: (Show a, Eq a, Num a, LogTree t a) => String -> [CompNode a
 dotLogTreeRecurse nodeID         _ (Node (Just x,      offsets,    _,   _)        _) twiddleVec =    -- leaf
     -- Just draw myself.
     return $ "\"node" ++ nodeID ++ "\" [label = \"<f0> "
-        ++ "[" ++ show (head offsets) ++ "] " ++ show x ++ head twiddleVec
+        ++ "[" ++ show (head offsets) ++ "] " ++ show (fst x)
         ++ "\" shape = \"record\"];\n"
 dotLogTreeRecurse nodeID compNodes (Node (     _, childOffsets, skip, dif) children) twiddleVec = do -- ordinary node
     -- Draw myself.
@@ -391,7 +383,7 @@ dotLogTreeRecurse nodeID compNodes (Node (     _, childOffsets, skip, dif) child
                        runState (dotLogTreeRecurse childID (getCompNodes child) child twiddleVec) curState
                  put newState
                  return childStr
-             ) $ zip (zip childIDs $ map (snd . coProd twiddleChoice) children) twiddles
+             ) $ zip (zip childIDs children) twiddles
     -- Draw computation nodes between me and my children.
     compNodeStrs <- forM (zip compNodes [0..]) (\(compNode, k') -> do
             let compNodeID = nodeID ++ "C" ++ show k'
@@ -418,10 +410,10 @@ dotLogTreeRecurse nodeID compNodes (Node (     _, childOffsets, skip, dif) child
     return (selfStr ++ childrenStr ++ concat compNodeStrs ++ concat conexStrs)
     where childIDs        = [nodeID ++ show i | i <- [0..(length children - 1)]]
           childLen        = fromIntegral $ length $ last(levels $ head children)
-          res             = evalNode $ Node (Nothing, childOffsets, skip, dif) children
+          res             = evalNode (Node (Nothing, childOffsets, skip, dif) children, [])
           twiddles        = getTwiddleStrs $ Node (Nothing, [], 0, dif) children
           twiddleVals     = getTwiddles $ Node (Nothing, [], 0, dif) children
-          twiddleChoice      = head $ reverse $ twiddleVals
+          twiddleChoice   = last twiddleVals
           getCompNodeType :: Eq a => CompNode a -> State [CompNode a] Int
           getCompNodeType compNode = do
             compNodes <- get
@@ -442,11 +434,12 @@ dotLogTreeRecurse nodeID compNodes (Node (     _, childOffsets, skip, dif) child
 
 -- Helper function to grab a node's value.
 getValue :: LogTree t a => t -> Maybe a
-getValue (Node (x, _, _, _) _) = x
+getValue (Node (Just (x, _), _, _, _) _) = Just x
+getValue (Node (Nothing, _, _, _) _) = Nothing
 
 -- Helper function to evaluate a node.
 getEval (Left msg)   = []
-getEval (Right tree) = evalNode tree
+getEval (Right tree) = evalNode (tree, [])
 
 -- These helper functions just unwrap the Either from arround a
 -- LogTree, so that the equivalent functions from Data.Tree can be used.

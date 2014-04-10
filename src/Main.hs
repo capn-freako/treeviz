@@ -76,10 +76,7 @@ instance Arbitrary FFTTestVal where
         let radices = primeFactors n
         rValues <- vectorOf n $ choose (-1.0, 1.0)
         let values = map ((:+ PrettyDouble 0.0) . PrettyDouble) rValues
-        -- This doesnt work, although I think it should; why not?:
---        difs   <- vectorOf (length radices) $ elements [True, False]
-        dif <- elements [True, False]
-        let difs = replicate (length radices) dif
+        difs   <- vectorOf (length radices) $ elements [True, False]
         return $ FFTTestVal (values, zip radices difs)
 
 prop_fft_test testVal = collect (length values) $ collect modes $
@@ -107,24 +104,29 @@ tData6  = newTreeData [(2, False), (5, False)]
                       [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
 tData7  = newTreeData [(2, False), (2, False)]
                       [1.0, 1.0, 1.0, 1.0]
-tData8  = newTreeData [(2, True), (2, False)]
+answer7 = [4.0, 0.0, 0.0, 0.0]
+tData8  = newTreeData [(2, True), (2, True)]
                       [1.0, 1.0, 1.0, 1.0]
+answer8 = [4.0, 0.0, 0.0, 0.0]
 tData9  = newTreeData [(2, False), (2, True), (2, False)] [1.0, 1.0, -1.0, -1.0, 1.0, 1.0, -1.0, -1.0]
 answer9 = [0.0, 0.0, 4.0 :+ (-4.0), 0.0, 0.0, 0.0, 4.0 :+ 4.0, 0.0]
 
 -- Main
 exeMain = do
-    let tData  = tData5
-    let answer = answer5
+    let tData  = tData3
+    let answer = answer3
     let tree   = buildTree newFFTTree tData
-    let res    = getEval tree
-    putStrLn $ "Result = \t\t" ++ show res
-    if  answer == res
-      then putStrLn "Pass."
-      else putStrLn $ "Fail.\nAnswer = \t" ++ show answer
-    let (treePlot, legendPlot) = dotLogTree tree
-    writeFile treeFileName   treePlot
-    writeFile legendFileName legendPlot
+    case tree of
+      Left msg -> putStrLn msg
+      Right  _ -> do
+        let res = getEval tree
+        putStrLn $ "Result = \t\t" ++ show res
+        if  answer == res
+          then putStrLn "Pass."
+          else putStrLn $ "Fail.\nAnswer = \t" ++ show answer
+        let (treePlot, legendPlot) = dotLogTree tree
+        writeFile treeFileName   treePlot
+        writeFile legendFileName legendPlot
 
 -- Entry point for unit tests.
 testMain = do

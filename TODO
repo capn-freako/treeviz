@@ -1,5 +1,9 @@
-This is the TreeViz library "ToDo" list:
+This is the TreeViz library "ToDo" list, listed in decreasing order of
+priority:
 
-- Improve user documentation.
-- Add more LogTree instanes.
-- Investigate failure of mixed radix FFT.
+- Split source into multiple files.
+- Convert source to big boy Haskell, using Foldable, Traversable, etc.
+- Add the ability to track and classify operations performed, including
+  keeping track of "trivial" twiddles and phasors.
+- Add more LogTree instances.
+- Improve user documentation. ;-)
