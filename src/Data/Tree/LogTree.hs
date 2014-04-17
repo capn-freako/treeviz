@@ -5,137 +5,127 @@
            , Rank2Types
   #-}
 
------------------------------------------------------------------------------
---
--- Module      :  Data.Tree.LogTree
--- Copyright   :  Copyright (c) 2013 David Banas; all rights reserved World wide.
--- License     :  AllRightsReserved
---
--- Maintainer  :  capn.freako@gmail.com
--- Stability   :  Experimental
--- Portability :
---
--- |
---
------------------------------------------------------------------------------
+{-|
+Module      :  Data.Tree.LogTree
+Description :  A library for visualizing logarithmic breakdown of computation.
+Copyright   :  Copyright (c) 2013 David Banas; all rights reserved World wide.
+License     :  BSD3
 
+Maintainer  :  capn.freako@gmail.com
+Stability   :  Experimental
+Portability :  Uncertain
+
+Typical usage (a 4-point FFT, using 2 radix-2, DIT stages):
+
+@
+-- Main
+exeMain = do
+    let tData = newTreeData [(2, False), (2, False)] [1.0, 0.0, 0.0, 0.0]
+    let tree  = buildTree newFFTTree tData
+    case tree of
+      Left msg -> putStrLn msg
+      Right  _ -> do
+        -- If you're interested in the numerical result:
+        let res = getEval tree
+        putStrLn $ "Result = \t\t" ++ show res
+        -- If you want to visualize how the computation breaks down:
+        let (treePlot, legendPlot) = dotLogTree tree
+        writeFile treeFileName   treePlot
+        writeFile legendFileName legendPlot
+@
+
+And, to get easily viewable *.PNGs from the two files written, above:
+
+>>> dot <treeFileName> -Tpng >tree.png
+
+>>> dot <legendFileName> -Tpng >legend.png
+
+-}
 module Data.Tree.LogTree (
-    newTreeData, dotLogTree
-  , buildTree,   newFFTTree
-  , getLevels,   getFlatten, getEval
-  , modes,       values
+    LogTree (..), GenericLogTree, TreeData, TreeBuilder (..)
+  , CompOp (..), CompNodeOutput, CompNode
+  , newTreeData, buildMixedRadixTree
 ) where
 
 import Data.Complex
 import Data.Tree
 import Data.List
-import Text.Printf (printf, PrintfArg)
-import Control.Monad.State.Lazy
 import Data.Newtypes.PrettyDouble (PrettyDouble(..))
 
--- Data.Tree.LogTree - a class of tree structures representing logarithmic
---                     decomposition of arbitrary radix and using either
---                     decimation-in-time (DIT), or
---                     decimation-in-frequency (DIF) approach.
---
---   a           = data type of original list elements.
---
---   Tree type tuple, from left to right:
---     Maybe a   = original list element value, for leaf; Nothing, otherwise.
---     [Int]     = starting indeces, in original input list, of children
---     Int       = index skip factor, in original input list, of children
---     Bool      = True, if decimation in frequency (DIF) was used to form children.
---
--- Notes)
---   1) The radix of the decomposition at any level of a tree is equal
---      to the number of children at that node (i.e. - length subForest),
---      which should also equal the length of the second element in the
---      Tree type tuple.
-
-data CompOp = Sum -- Enumerates the possible computational operations performed by a computational node.
-            | Prod
+{-|
+Enumerates the possible computational operations performed by a computational node.
+-}
+data CompOp = Sum  -- ^ Node sums its inputs.
+            | Prod -- ^ Node multiplies its inputs.
     deriving (Eq)
--- Our computational node type; tuple members are:
--- - type of operation (i.e. - CompOp)
--- - list of multiplicative coefficients (type a) to be applied to the inputs
---
--- Each tuple in the list corresponds to a unique element of the output list.
+
+{-|
+Our computational node type; tuple members are:
+
+    * type of operation (i.e. - CompOp)
+
+    * list of multiplicative coefficients (type a) to be applied to the inputs
+-}
 type CompNodeOutput a = (CompOp, [a])
+
+{-|
+Completely defines a particular computational node, by specifying all of
+its outputs.
+
+Each tuple in the list corresponds to a unique element of the output list.
+-}
 type CompNode a       = [CompNodeOutput a]
 
+{-|
+A convenient type synonym, used as shorthand to specify the actual Tree type.
+
+"a" is the data type of the original input list elements.
+
+Tree type tuple, from left to right:
+
+    * Maybe (a, [[a]]) = original list element value, for leaf; Nothing, otherwise.
+                         The list of lists contains the accumulated twiddles.
+
+    * [Int]     = starting indeces, in original input list, of children
+
+    * Int       = index skip factor, in original input list, of children
+
+    * Bool      = True, if decimation in frequency (DIF) was used to form children.
+
+Notes:
+
+    * The radix of the decomposition at any level of a tree is equal
+      to the number of children at that node (i.e. - length subForest),
+      which should also equal the length of the second element in the
+      Tree type tuple.
+-}
 type GenericLogTree a = Tree (Maybe (a, [[a]]), [Int], Int, Bool)
 
+{-|
+A class of tree structures representing logarithmic decomposition of arbitrary
+radix and using either decimation-in-time (DIT), or decimation-in-frequency
+(DIF) approach (or, a mix of both).
+-}
 class (Show a, t ~ GenericLogTree a) => LogTree t a | t -> a where
-    evalNode       :: (t, [Int]) -> [a] -- Evaluates a node in a tree, returning a list of values of the original type.
-    getTwiddles    :: t -> [[a]]        -- Returns any necessary "twiddle" factors, for DIF decomposition.
-    calcTwiddles   :: Bool -> Int -> Int -> [[a]] -- The actual twiddle factor calculator.
-    getTwiddleStrs :: t -> [[String]]   -- Returns the string representations of the twiddle factors.
+
+    -- | Evaluates a node in a tree, returning a list of values of the original
+    --   type. The supplied list of integers gives the index of the outer
+    --   summation, for each step in the computational breakdown.
+    evalNode       :: (t, [Int]) -> [a]
+
+    -- | Returns any necessary "twiddle" factors, for DIF decomposition.
+    getTwiddles    :: t -> [[a]]
+
+    -- | The actual twiddle factor calculator.
+    calcTwiddles   :: Bool -> Int -> Int -> [[a]]
+
+    -- | Returns the string representations of the twiddle factors.
+    getTwiddleStrs :: t -> [[String]]
     getTwiddleStrs = map (map show) . getTwiddles
-    getCompNodes   :: t -> [CompNode a] -- Returns the complete list of computational nodes required, in order to
-                                        -- evaluate the tree.
 
--- FFTTree - an instance of LogTree, this type represents the Fast Fourier
---           Transform (FFT) of arbitrary radix and decimation scheme.
-type FFTTree = GenericLogTree (Complex PrettyDouble)
-instance LogTree FFTTree (Complex PrettyDouble) where
-    -- The evaluation of a leaf is its value, multiplied by the correct series of accumulated twiddles.
-    evalNode (Node (Just (x, wss),  _, _,   _)        _, ms) = [foldl (*) x (zipWith getItem ms wss)]
-      where getItem m ws = ws !! m
-    -- Sub-trees are evaluated recursively, but require inclusion of `phasors'.
-    evalNode (Node (            _,  _, _, dif) children, ms) =
-        foldl (zipWith (+)) [0.0 | n <- [1..nodeLen]]
-          $ zipWith (zipWith (*)) subTransforms phasors
-      where subTransforms =
-                [ subCombFunc
-                    $ map evalNode
-                          [(child, ms ++ [m]) | m <- [0..(radix - 1)]]
-                  | child <- children
-                ]
-            subCombFunc =
-              if dif then concat . transpose -- i.e. - interleave
-                     else concat
-            childLen = length $ last(levels $ head children)
-            radix    = length children
-            nodeLen  = childLen * radix
-            phasors  = [ [ cis((-2.0) * pi / degree * fromIntegral r * fromIntegral k)
-                           | k <- [0..(nodeLen - 1)]]
-                         | r <- [0..(radix - 1)]]
-            degree   | dif       = fromIntegral radix
-                     | otherwise = fromIntegral nodeLen
-
-    getTwiddles (Node (     _,  _, _, dif) children) = calcTwiddles dif childLen radix
-        where childLen = length $ last(levels $ head children)
-              radix    = length children
-
-    calcTwiddles dif childLen radix =
-        if dif
-          then [ [ cis((-2.0) * pi / fromIntegral nodeLen * fromIntegral m * fromIntegral n)
-                   | n <- [0..(childLen - 1)]]
-                 | m <- [0..(radix - 1)]]
-          else [ [ 1.0 :+ 0.0
-                   | n <- [0..(childLen - 1)]]
-                 | m <- [0..(radix - 1)]]
-        where nodeLen  = childLen * radix
-
-    getTwiddleStrs (Node (     _,  _, _, dif) children) =
-        if dif
-          then map (map ((\str -> " [" ++ str ++ "]") . show)) $ getTwiddles (Node (Nothing, [], 0, dif) children)
-          else [["" | i <- [1..(length (last (levels child)))]] | child <- children]
-
-    getCompNodes (Node ( Just x, _, _,   _)        _) = [] -- A leaf requires no computational nodes.
-    getCompNodes (Node (Nothing, _, _, dif) children) =
-        [ [ (Sum, [ cis (-2.0 * pi * k * r / degree)
-                    | r <- map fromIntegral [0..(radix - 1)]
-                  ]
-            )
-            | k <- map fromIntegral [childLen * r + m | r <- [0..(radix - 1)]]
-          ]
-          | m <- map fromIntegral [0..(childLen - 1)]
-        ] where childLen = fromIntegral $ length $ last(levels $ head children)
-                radix    = length children
-                nodeLen  = childLen * radix
-                degree   | dif       = fromIntegral radix
-                         | otherwise = fromIntegral nodeLen
+    -- | Returns the complete list of computational nodes required,
+    --   in order to evaluate the tree.
+    getCompNodes   :: t -> [CompNode a]
 
 -- This is the intended user interface for building trees.
 -- It uses the "newtype record syntax" trick of O'Sullivan et al., in
@@ -176,6 +166,18 @@ instance LogTree FFTTree (Complex PrettyDouble) where
 -- The output of the buildTree function has been wrapped inside an
 -- Either, in order to make error reporting possible.
 
+-- | Data structure used by tree builders.
+--
+--   Fields:
+--
+--       [@modes@]  A list of pairs containing:
+--
+--                    * The radix to be used at a particular stage.
+--
+--                    * A Boolean flag indicating whether decimation-in-frequency
+--                      (DIF) should be used.
+--
+--       [@values@] The list of values to be transformed.
 data TreeData a = TreeData {
     modes  :: [(Int, Bool)]
   , values :: [a]
@@ -186,9 +188,6 @@ Build a data structure suitable for passing to a tree constructor.
 
 Example:
     tData = newTreeData [(2, False), (2, False)] [1.0, 0.0, 0.0, 0.0]
-
-Note) For now, all booleans in the list should contain
-      the same value, either True or False.
 -}
 newTreeData :: [(Int, Bool)] -- ^ Decomposition modes : (radix, DIF_flag).
             -> [a]           -- ^ Values for populating the tree.
@@ -198,23 +197,25 @@ newTreeData modes values = TreeData {
                              , values = values
                            }
 
+{-|
+Example: tree  = buildTree newFFTTree tData
+
+Note:
+
+Please, don't use the `TreeBuilder' data constructor directly, in your client
+code, unless you are defining a new instance of typeclass `LogTree'.
+You will short circuit our data abstraction strategy, if you do this.
+This will expose your client code to potential breakage, in the future.
+(See the FFTTree.hs file for an example of how to create a new instance of
+typeclass, LogTree.)
+-}
 newtype TreeBuilder t = TreeBuilder {
-    -- | Tree builder
-    --
-    -- Example:
-    --   tree  = buildTree newFFTTree tData
     buildTree :: LogTree t a => TreeData a -> Either String t
 }
 
--- | Returns a tree builder suitable for constructing Fast Fourier Transform
---   (FFT) decomposition trees of arbitrary radices and either decimation
---   style (i.e. - DIT or DIF).
-newFFTTree :: TreeBuilder FFTTree
-newFFTTree = TreeBuilder buildMixedRadixTree
-
 -- Presumably, future contributors will add new tree types, by declaring
 -- new instances of `LogTree', along with associated definitions of
--- `evalNode' and `getCompNodes'. Because we're using data abstraction
+-- `evalNode', etc. Because we're using data abstraction
 -- to preserve the integrity and longevity of the interface, those new
 -- instances will require new, user accessible helper functions, like
 -- `newFFTTree', above. The following template is provided, for guidance.
@@ -225,7 +226,7 @@ newFFTTree = TreeBuilder buildMixedRadixTree
 -- Note that the only difference is the type parameter, `t', supplied
 -- to `TreeBuilder'. This is because these helper functions are really
 -- just conduits of type information, which allow the compiler to:
---  - correctly overload `evalNode' and `getCompNodes', and
+--  - correctly overload `evalNode', etc., and
 --  - correctly type cast the list of user input values, which are
 --    often untyped floating point constants.
 -- (At least, I think that's what's going on; gurus?)
@@ -240,6 +241,13 @@ newFFTTree = TreeBuilder buildMixedRadixTree
 --    pollute the simplicity of the interface, nor below, where it would
 --    be expensive, since `mixedRadixRecurse' is recursive. As paart of
 --    this step, it primes the twiddles for each value with an empty list.
+
+{-| NOT FOR USE BY GENERAL CLIENT CODE!
+
+This has been exported, solely for use by definers of new instances
+of typeclass, LogTree. (See the FFTTree.hs file, for an example
+of how to do this.)
+-}
 buildMixedRadixTree :: (LogTree t a) => TreeData a -> Either String t
 buildMixedRadixTree td = mixedRadixRecurse 0 1 td_modes td_values
     where td_modes  = modes td
@@ -264,7 +272,9 @@ buildMixedRadixTree td = mixedRadixRecurse 0 1 td_modes td_values
 --                            the decomposition. (The Int gives the radix, and
 --                            the Bool tells whether DIF is to be used.)
 --
---   xs :: [a]              - the list of values to be decomposed.
+--   xs :: [(a, [[a]])]     - the list of values to be decomposed, along with
+--                            any twiddles already accumulated in previous
+--                            decomposition steps.
 --                            (i.e. - the seed of the tree)
 
 mixedRadixRecurse :: (LogTree t a) => Int -> Int -> [(Int, Bool)] -> [(a, [[a]])] -> Either String t
@@ -301,150 +311,3 @@ mixedRadixRecurse myOffset mySkipFactor modes subComps
         dif      = snd $ head modes
         twiddles = calcTwiddles dif childLen radix
         twiddles' = transpose twiddles
-
--- | Converts a GenericLogTree to a GraphViz dot diagram.
-dotLogTree :: (Show a, Eq a, Num a, LogTree t a) => Either String t -> (String, String)
-dotLogTree (Left msg)   = (header
- ++ "\"node0\" [label = \"" ++ msg ++ "\"]\n"
- ++ "}\n", "")
-dotLogTree (Right tree) = (header
- ++ treeStr
- ++ "}\n",
- compNodeLegend)
-    where (treeStr, compNodeTypes) = runState (dotLogTreeRecurse "0" (getCompNodes tree) tree twiddles) []
-          -- This is just a convenient way to get a list of correctly typed "1.0"s of the correct length:
-          twiddles       = concat $ getTwiddleStrs $ Node (Nothing, [], 0, False) $ subForest tree
-          nodeLen        = fromIntegral $ length $ last (levels tree)
-          compNodeLegend = "digraph {\n"
-            ++ "label = \"Computational Node Legend\" fontsize = \"24\"\n"
-            ++ "\"node0L\""
-            ++ " [label = <<table border=\"0\" cellborder=\"0\" cellpadding=\"3\" bgcolor=\"white\"> \\ \n"
-            ++ unlines indexedStrs
-            ++ "</table>>, shape = \"Mrecord\""
-            ++ "];\n}\n"
-          indexedStrs = map (\str -> "<tr> \\ \n" ++ str ++ "</tr> \\") legendStrs
-          legendStrs  = map (\(nodeType, typeInd) ->
-            concat $ ("  <td align=\"right\">" ++ show typeInd ++ ":</td> \\ \n") : outSpecs nodeType
-                                  ) $ zip compNodeTypes [0..]
-          outSpecs :: (Show a) => CompNode a -> [String]
-          outSpecs nodeOutputs = map (\(nodeOutput, yInd) ->
-            let opStr = case fst nodeOutput of
-                                        Sum  -> " + "
-                                        Prod -> " * "
-            in "    <td align=\"left\">y" ++ show yInd ++ " = "
-                 ++ intercalate opStr (map (\(coeff, k) -> "(" ++ show coeff ++ printf ") * x%d" k)
-                                             $ zip (snd nodeOutput) [(0::Int)..])
-                 ++ "</td> \\ \n"
-                                     ) $ zip nodeOutputs [(0::Int)..]
-
-header = "digraph g { \n \
- \   ranksep = \"1.5\";\n \
- \   nodesep = \"0\";\n \
- \   label = \"Divide & Conquer Processing Graph\";\n \
- \   labelloc = \"t\";\n \
- \   fontsize = \"28\" \n \
- \   graph [ \n \
- \       rankdir = \"RL\" \n \
- \       splines = \"false\" \n \
- \   ]; \n \
- \   node [ \n \
- \       fontsize = \"16\" \n \
- \       shape = \"circle\" \n \
- \       height = \"0.3\" \n \
- \   ]; \n \
- \   edge [ \n \
- \       dir = \"back\" \n \
- \   ];\n"
-
--- The two [CompNode a]s here are confusing. The one that comes in as
--- the second argument to the function is the actual list of computational
--- nodes in the diagram. The one that is the accumulated state of the State
--- monad is a list of the different TYPES of computational nodes required,
--- in order to evaluate the tree.
-dotLogTreeRecurse :: (Show a, Eq a, Num a, LogTree t a) => String -> [CompNode a] -> t -> [String] -> State [CompNode a] String
-dotLogTreeRecurse nodeID         _ (Node (Just x,      offsets,    _,   _)        _) twiddleVec =    -- leaf
-    -- Just draw myself.
-    return $ "\"node" ++ nodeID ++ "\" [label = \"<f0> "
-        ++ "[" ++ show (head offsets) ++ "] " ++ show (fst x)
-        ++ "\" shape = \"record\"];\n"
-dotLogTreeRecurse nodeID compNodes (Node (     _, childOffsets, skip, dif) children) twiddleVec = do -- ordinary node
-    -- Draw myself.
-    let selfStr =
-            "\"node" ++ nodeID ++ "\" [label = \"<f0> "
-            ++ show (head res) ++ head twiddleVec
-            ++ concat [" | <f" ++ show k ++ "> " ++ show val ++ twiddle
-                        | ((val, k), twiddle) <- zip (zip (tail res) [1..]) (tail twiddleVec)]
-            ++ "\" shape = \"record\"];\n"
-    -- Draw children.
-    childrenStr <- liftM concat $
-        mapM (\((childID, child), twiddleVec) ->
-              do curState <- get
-                 let (childStr, newState) =
-                       runState (dotLogTreeRecurse childID (getCompNodes child) child twiddleVec) curState
-                 put newState
-                 return childStr
-             ) $ zip (zip childIDs children) twiddles
-    -- Draw computation nodes between me and my children.
-    compNodeStrs <- forM (zip compNodes [0..]) (\(compNode, k') -> do
-            let compNodeID = nodeID ++ "C" ++ show k'
-            curState <- get
-            let (compNodeType, newState) = runState (getCompNodeType compNode) curState
-            put newState
-            return $ "\"node" ++ compNodeID ++ "\""
-               ++ " [label = \"" ++ show compNodeType ++ "\""
-               ++ ", shape = \"circle\""
-               ++ ", height = \"0.1\"" -- Just making sure it's as small as possible.
-               ++ "];\n")
-    -- Draw the connections.
-    let conexStrs = [
-            "\"node" ++ nodeID  ++ "\":f" ++ show (r * childLen + k')
-         ++ " -> \"node" ++ nodeID ++ "C" ++ show k' ++ "\""
-         ++ " [headlabel = \"y" ++ show r ++ "\" labelangle = \"-30\" labeldistance = \"2\"];\n"
-         ++ "\"node" ++ nodeID ++ "C" ++ show k' ++ "\""
-         ++ " -> \"node" ++ nodeID ++ show r ++ "\":f" ++ show k'
-         ++ " [taillabel = \"x" ++ show r ++ "\" labelangle = \"20\" labeldistance = \"2.5\"];\n"
-            | k' <- [0..(length compNodes - 1)]
-            , r  <- [0..(length children - 1)]
-                    ]
-    -- Return the concatenation of all substrings.
-    return (selfStr ++ childrenStr ++ concat compNodeStrs ++ concat conexStrs)
-    where childIDs        = [nodeID ++ show i | i <- [0..(length children - 1)]]
-          childLen        = fromIntegral $ length $ last(levels $ head children)
-          res             = evalNode (Node (Nothing, childOffsets, skip, dif) children, [])
-          twiddles        = getTwiddleStrs $ Node (Nothing, [], 0, dif) children
-          twiddleVals     = getTwiddles $ Node (Nothing, [], 0, dif) children
-          twiddleChoice   = last twiddleVals
-          getCompNodeType :: Eq a => CompNode a -> State [CompNode a] Int
-          getCompNodeType compNode = do
-            compNodes <- get
-            let (newCompNodes, compNodeType) = fetchCompNodeType compNode compNodes
-            put newCompNodes
-            return compNodeType
-          fetchCompNodeType :: Eq a => CompNode a -> [CompNode a] -> ([CompNode a], Int)
-          fetchCompNodeType compNode compNodes =
-            case findCompNode 0 compNode compNodes of
-              Just compNodeIndex -> (compNodes, compNodeIndex)
-              Nothing            -> (compNodes ++ [compNode], length compNodes)
-          findCompNode :: Eq a => Int -> CompNode a -> [CompNode a] -> Maybe Int
-          findCompNode     _        _         [] = Nothing
-          findCompNode index compNode (cn : cns) =
-            if  compNode == cn
-            then Just index
-            else findCompNode (index + 1) compNode cns
-
--- Helper function to grab a node's value.
-getValue :: LogTree t a => t -> Maybe a
-getValue (Node (Just (x, _), _, _, _) _) = Just x
-getValue (Node (Nothing, _, _, _) _) = Nothing
-
--- Helper function to evaluate a node.
-getEval (Left msg)   = []
-getEval (Right tree) = evalNode (tree, [])
-
--- These helper functions just unwrap the Either from arround a
--- LogTree, so that the equivalent functions from Data.Tree can be used.
-getLevels (Left msg)   = [] -- Can't figure out how to usefully cary `msg' forward.
-getLevels (Right tree) = levels tree
-
-getFlatten (Left msg)   = [] -- (as above)
-getFlatten (Right tree) = flatten tree

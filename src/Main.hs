@@ -26,9 +26,10 @@ import Test.QuickCheck (choose, vectorOf, elements, collect)
 import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.All (quickCheckAll)
 import Data.Tree (drawTree, levels, flatten)
-import Data.Tree.LogTree (buildTree, dotLogTree, newFFTTree
-                        , getLevels, getFlatten, getEval, newTreeData)
-import Data.Newtypes.PrettyDouble (PrettyDouble(..))
+import Data.Tree.LogTree (buildTree, newTreeData)
+import Data.Tree.LogTreeUtil (dotLogTree, getLevels, getFlatten, getEval)
+import Data.Tree.LogTrees.FFTTree (FFTTree (..), newFFTTree)
+import Data.Newtypes.PrettyDouble (PrettyDouble (..))
 
 -- Global constants
 treeFileName   = "tree.gv"
