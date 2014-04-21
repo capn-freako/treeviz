@@ -26,7 +26,7 @@ import Test.QuickCheck (choose, vectorOf, elements, collect)
 import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.All (quickCheckAll)
 import Data.Tree (drawTree, levels, flatten)
-import Data.Tree.LogTree (buildTree, newTreeData)
+import Data.Tree.LogTree (buildTree, newTreeData, DecompositionMode, Radix, DecimationType (..))
 import Data.Tree.LogTreeUtil (dotLogTree, getLevels, getFlatten, getEval)
 import Data.Tree.LogTrees.FFTTree (FFTTree (..), newFFTTree)
 import Data.Newtypes.PrettyDouble (PrettyDouble (..))
@@ -69,7 +69,7 @@ dft xs = [ sum [ x * exp((0.0 :+ (-1.0)) * 2 * pi / lenXs * fromIntegral(k * n))
 
 -- QuickCheck types & propositions
 newtype FFTTestVal = FFTTestVal {
-    getVal :: ([Complex PrettyDouble], [(Int, Bool)])
+    getVal :: ([Complex PrettyDouble], [DecompositionMode])
 } deriving (Show)
 instance Arbitrary FFTTestVal where
     arbitrary = do
@@ -77,7 +77,7 @@ instance Arbitrary FFTTestVal where
         let radices = primeFactors n
         rValues <- vectorOf n $ choose (-1.0, 1.0)
         let values = map ((:+ PrettyDouble 0.0) . PrettyDouble) rValues
-        difs   <- vectorOf (length radices) $ elements [True, False]
+        difs   <- vectorOf (length radices) $ elements [DIF, DIT]
         return $ FFTTestVal (values, zip radices difs)
 
 prop_fft_test testVal = collect (length values) $ collect modes $
@@ -89,27 +89,27 @@ prop_fft_test testVal = collect (length values) $ collect modes $
           answer = dft values
 
 --- Test vectors
---tData1  = newTreeData [(2, False), (2, False), (2, False)] [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-tData1  = newTreeData [(2, True), (2, True), (2, False)] [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+--tData1  = newTreeData [(2, DIT), (2, DIT), (2, DIT)] [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+tData1  = newTreeData [(2, DIF), (2, DIF), (2, DIT)] [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 answer1 = [8.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-tData2  = newTreeData [(2, True), (2, True), (2, False)] [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+tData2  = newTreeData [(2, DIF), (2, DIF), (2, DIT)] [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 answer2 = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-tData3  = newTreeData [(2, False), (2, True), (2, False)] [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
+tData3  = newTreeData [(2, DIT), (2, DIF), (2, DIT)] [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
 answer3 = [0.0, 0.0, 0.0, 0.0, 8.0, 0.0, 0.0, 0.0]
-tData4  = newTreeData [(2, False), (2, False), (2, False)] [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
+tData4  = newTreeData [(2, DIT), (2, DIT), (2, DIT)] [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
 answer4 = [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
-tData5  = newTreeData [(2, False), (2, False), (2, False)] [3.000651293151413e-2 :+ 0.0,(-0.40689552869429835) :+ 0.0,(-7.699660989251922e-2) :+ 0.0,0.5722622492704406 :+ 0.0,0.9132167229339474 :+ 0.0,0.7459175605048463 :+ 0.0,0.3074622261846285 :+ 0.0,(-0.9358905129416841) :+ 0.0]
+tData5  = newTreeData [(2, DIT), (2, DIT), (2, DIT)] [3.000651293151413e-2 :+ 0.0,(-0.40689552869429835) :+ 0.0,(-7.699660989251922e-2) :+ 0.0,0.5722622492704406 :+ 0.0,0.9132167229339474 :+ 0.0,0.7459175605048463 :+ 0.0,0.3074622261846285 :+ 0.0,(-0.9358905129416841) :+ 0.0]
 tData5Values  = [3.000651293151413e-2 :+ 0.0,(-0.40689552869429835) :+ 0.0,(-7.699660989251922e-2) :+ 0.0,0.5722622492704406 :+ 0.0,0.9132167229339474 :+ 0.0,0.7459175605048463 :+ 0.0,0.3074622261846285 :+ 0.0,(-0.9358905129416841) :+ 0.0] :: [Complex PrettyDouble]
 answer5 = [1.149 :+ 0.000, (-2.765) :+ 0.133, 0.713 :+ (-0.703), 0.998 :+ (-0.636), 1.198 :+ 0.000, 0.998 :+ 0.636, 0.713 :+ 0.703, (-2.765) :+ (-0.133)]
-tData6  = newTreeData [(2, False), (5, False)]
+tData6  = newTreeData [(2, DIT), (5, DIT)]
                       [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
-tData7  = newTreeData [(2, False), (2, False)]
+tData7  = newTreeData [(2, DIT), (2, DIT)]
                       [1.0, 1.0, 1.0, 1.0]
 answer7 = [4.0, 0.0, 0.0, 0.0]
-tData8  = newTreeData [(2, True), (2, True)]
+tData8  = newTreeData [(2, DIF), (2, DIF)]
                       [1.0, 1.0, 1.0, 1.0]
 answer8 = [4.0, 0.0, 0.0, 0.0]
-tData9  = newTreeData [(2, False), (2, True), (2, False)] [1.0, 1.0, -1.0, -1.0, 1.0, 1.0, -1.0, -1.0]
+tData9  = newTreeData [(2, DIT), (2, DIF), (2, DIT)] [1.0, 1.0, -1.0, -1.0, 1.0, 1.0, -1.0, -1.0]
 answer9 = [0.0, 0.0, 4.0 :+ (-4.0), 0.0, 0.0, 0.0, 4.0 :+ 4.0, 0.0]
 
 -- Main

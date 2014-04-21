@@ -44,6 +44,7 @@ And, to get easily viewable *.PNGs from the two files written, above:
 module Data.Tree.LogTree (
     LogTree (..), GenericLogTree, TreeData, TreeBuilder (..)
   , CompOp (..), CompNodeOutput, CompNode
+  , DecimationType (..), Radix, DecompositionMode
   , newTreeData, buildMixedRadixTree
 ) where
 
@@ -52,29 +53,42 @@ import Data.Tree
 import Data.List
 import Data.Newtypes.PrettyDouble (PrettyDouble(..))
 
-{-|
-Enumerates the possible computational operations performed by a computational node.
--}
+-- | Enumerates the possible computational operations performed by a computational node.
 data CompOp = Sum  -- ^ Node sums its inputs.
             | Prod -- ^ Node multiplies its inputs.
     deriving (Eq)
 
-{-|
-Our computational node type; tuple members are:
-
-    * type of operation (i.e. - CompOp)
-
-    * list of multiplicative coefficients (type a) to be applied to the inputs
--}
+-- | Our computational node type; tuple members are:
+--
+--       * type of operation (i.e. - CompOp)
+--
+--       * list of multiplicative coefficients (type a) to be applied to the inputs
 type CompNodeOutput a = (CompOp, [a])
 
-{-|
-Completely defines a particular computational node, by specifying all of
-its outputs.
-
-Each tuple in the list corresponds to a unique element of the output list.
--}
+-- | Completely defines a particular computational node, by specifying all of its outputs.
+--
+--   Each tuple in the list corresponds to a unique element of the output list.
 type CompNode a       = [CompNodeOutput a]
+
+-- | Enumerates the possible decimation styles of a computation breakdown stage.
+data DecimationType = DIT -- ^ Decimation in Time.
+                    | DIF -- ^ Decimation in Frequency.
+    deriving (Eq, Show)
+
+-- | A convenient type alias to help make the code more readable.
+type Radix = Int
+
+-- | A convenient type alias.
+--
+--   Each stage of a computation breakdown can be uniquely identified by
+--   a pair containing:
+--
+--       [Radix]          Typically, an integer defining the number of
+--                        sub-computations being combined in this stage.
+--
+--       [DecimationType] A flag giving the decimation style used in forming
+--                        the list of elements in the sub-computations.
+type DecompositionMode = (Radix, DecimationType)
 
 {-|
 A convenient type synonym, used as shorthand to specify the actual Tree type.
@@ -99,7 +113,7 @@ Notes:
       which should also equal the length of the second element in the
       Tree type tuple.
 -}
-type GenericLogTree a = Tree (Maybe (a, [[a]]), [Int], Int, Bool)
+type GenericLogTree a = Tree (Maybe (a, [[a]]), [Int], Int, DecimationType)
 
 {-|
 A class of tree structures representing logarithmic decomposition of arbitrary
@@ -117,7 +131,7 @@ class (Show a, t ~ GenericLogTree a) => LogTree t a | t -> a where
     getTwiddles    :: t -> [[a]]
 
     -- | The actual twiddle factor calculator.
-    calcTwiddles   :: Bool -> Int -> Int -> [[a]]
+    calcTwiddles   :: DecimationType -> Int -> Int -> [[a]]
 
     -- | Returns the string representations of the twiddle factors.
     getTwiddleStrs :: t -> [[String]]
@@ -170,16 +184,11 @@ class (Show a, t ~ GenericLogTree a) => LogTree t a | t -> a where
 --
 --   Fields:
 --
---       [@modes@]  A list of pairs containing:
---
---                    * The radix to be used at a particular stage.
---
---                    * A Boolean flag indicating whether decimation-in-frequency
---                      (DIF) should be used.
+--       [@modes@]  A list of 'DecompositionMode's
 --
 --       [@values@] The list of values to be transformed.
 data TreeData a = TreeData {
-    modes  :: [(Int, Bool)]
+    modes  :: [DecompositionMode]
   , values :: [a]
 } deriving(Show)
 
@@ -187,11 +196,11 @@ data TreeData a = TreeData {
 Build a data structure suitable for passing to a tree constructor.
 
 Example:
-    tData = newTreeData [(2, False), (2, False)] [1.0, 0.0, 0.0, 0.0]
+    tData = newTreeData [(2, DIT), (2, DIT)] [1.0, 0.0, 0.0, 0.0]
 -}
-newTreeData :: [(Int, Bool)] -- ^ Decomposition modes : (radix, DIF_flag).
-            -> [a]           -- ^ Values for populating the tree.
-            -> TreeData a    -- ^ Resultant data structure for passing to tree constructor.
+newTreeData :: [DecompositionMode] -- ^ Decomposition modes : (radix, DIF_flag).
+            -> [a]                 -- ^ Values for populating the tree.
+            -> TreeData a          -- ^ Resultant data structure for passing to tree constructor.
 newTreeData modes values = TreeData {
                                modes  = modes
                              , values = values
@@ -267,19 +276,16 @@ buildMixedRadixTree td = mixedRadixRecurse 0 1 td_modes td_values
 --                            between consecutive elements of `xs'.
 --                            (Maintained for graphing purposes.)
 --
---   modes :: [(Int, Bool)] - list of pairs defining the desired radix and
---                            decimation style for the successive levels of
---                            the decomposition. (The Int gives the radix, and
---                            the Bool tells whether DIF is to be used.)
+--   modes :: [DecompositionMode]
 --
 --   xs :: [(a, [[a]])]     - the list of values to be decomposed, along with
 --                            any twiddles already accumulated in previous
 --                            decomposition steps.
 --                            (i.e. - the seed of the tree)
 
-mixedRadixRecurse :: (LogTree t a) => Int -> Int -> [(Int, Bool)] -> [(a, [[a]])] -> Either String t
+mixedRadixRecurse :: (LogTree t a) => Int -> Int -> [DecompositionMode] -> [(a, [[a]])] -> Either String t
 mixedRadixRecurse _ _ _ []  = Left "mixedRadixRecurse(): called with empty list."
-mixedRadixRecurse myOffset _ _ [(x, ws)] = return $ Node (Just (x, ws), [myOffset], 0, False) []
+mixedRadixRecurse myOffset _ _ [(x, ws)] = return $ Node (Just (x, ws), [myOffset], 0, DIT) []
 mixedRadixRecurse myOffset mySkipFactor modes subComps
   | product (map fst modes) /= length subComps =
     Left "mixedRadixRecurse: Product of radices must equal length of input."
@@ -289,7 +295,7 @@ mixedRadixRecurse myOffset mySkipFactor modes subComps
                                (tail modes) subList
                              | (childOffset, subList) <- zip childOffsets subLists
                            ]
-      return $ Node (Nothing, childOffsets, childSkipFactor, dif) children
+      return $ Node (Nothing, childOffsets, childSkipFactor, decimationType) children
   where subLists =
           [ [ addTwiddle (subComps !! ind) (twiddles' !! (ind `mod` childLen))
               | i <- [0..(childLen - 1)]
@@ -298,16 +304,16 @@ mixedRadixRecurse myOffset mySkipFactor modes subComps
             | offset <- offsets
           ]
         addTwiddle (x, ws) w = (x, ws ++ [w])
-        childSkipFactor | dif       = mySkipFactor
+        childSkipFactor | decimationType == DIF = mySkipFactor
                         | otherwise = mySkipFactor * radix
-        childOffsets    | dif       = [myOffset + (i * mySkipFactor * childLen) | i <- [0..(radix - 1)]]
+        childOffsets    | decimationType == DIF = [myOffset + (i * mySkipFactor * childLen) | i <- [0..(radix - 1)]]
                         | otherwise = [myOffset +  i * mySkipFactor             | i <- [0..(radix - 1)]]
-        skipFactor      | dif       = 1
+        skipFactor      | decimationType == DIF = 1
                         | otherwise = radix
-        offsets         | dif       = [i * childLen | i <- [0..(radix - 1)]]
+        offsets         | decimationType == DIF = [i * childLen | i <- [0..(radix - 1)]]
                         | otherwise = [0..(radix - 1)]
         childLen = length subComps `div` radix
         radix    = fst $ head modes
-        dif      = snd $ head modes
-        twiddles = calcTwiddles dif childLen radix
+        decimationType = snd $ head modes
+        twiddles = calcTwiddles decimationType childLen radix
         twiddles' = transpose twiddles

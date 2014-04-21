@@ -1,5 +1,5 @@
 name: treeviz
-version: 0.0.7
+version: 0.0.8
 cabal-version: >=1.8
 build-type: Simple
 license: BSD3
@@ -16,16 +16,16 @@ author: David B. Banas
 tested-with: GHC -any
 data-dir: ""
 extra-source-files: README TODO
- 
+
 source-repository head
     type: git
     location: git://github.com/capn-freako/treeviz.git
- 
+
 source-repository this
     type: git
     location: git://github.com/capn-freako/treeviz.git
     tag: v0.0.7
- 
+
 library
     build-depends: QuickCheck -any, base >=2 && <5, containers -any,
                    mtl -any, random -any
@@ -35,7 +35,7 @@ library
     buildable: True
     cpp-options: -DMAIN_FUNCTION=testMain
     hs-source-dirs: src
- 
+
 executable treeviz
     build-depends: QuickCheck -any, base >=2 && <5, containers -any,
                    mtl -any, random -any
@@ -43,7 +43,7 @@ executable treeviz
     buildable: True
     hs-source-dirs: src
     other-modules: Data.Tree.LogTreeUtil Data.Tree.LogTrees.FFTTree
- 
+
 test-suite test-treeviz
     build-depends: QuickCheck -any, base >=2 && <5, containers -any,
                    mtl -any, random -any
