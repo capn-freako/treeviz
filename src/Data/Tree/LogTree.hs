@@ -12,7 +12,7 @@ Copyright   :  Copyright (c) 2013 David Banas; all rights reserved World wide.
 License     :  BSD3
 
 Maintainer  :  capn.freako@gmail.com
-Stability   :  Experimental
+Stability   :  Development
 Portability :  Uncertain
 
 Typical usage (a 4-point FFT, using 2 radix-2, DIT stages):
@@ -100,11 +100,11 @@ Tree type tuple, from left to right:
     * Maybe (a, [[a]]) = original list element value, for leaf; Nothing, otherwise.
                          The list of lists contains the accumulated twiddles.
 
-    * [Int]     = starting indeces, in original input list, of children
+    * [Int]            = starting indeces, in original input list, of children
 
-    * Int       = index skip factor, in original input list, of children
+    * Int              = index skip factor, in original input list, of children
 
-    * Bool      = True, if decimation in frequency (DIF) was used to form children.
+    * DecimationType   = Flags decimation in time (DIT), or frequency (DIF).
 
 Notes:
 
@@ -174,7 +174,7 @@ class (Show a, t ~ GenericLogTree a) => LogTree t a | t -> a where
 --
 -- So, the call from the user's client code will look like this:
 --
---   tData = newTreeData [(2, False), (2, False)] [1.0, 0.0, 0.0, 0.0]
+--   tData = newTreeData [(2, DIT), (2, DIT)] [1.0, 0.0, 0.0, 0.0]
 --   tree  = buildTree newFFTTree tData
 --
 -- The output of the buildTree function has been wrapped inside an

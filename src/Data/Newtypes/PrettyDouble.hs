@@ -8,7 +8,7 @@ Copyright   :  Copyright (c) 2013 David Banas; all rights reserved World wide.
 License     :  BSD3
 
 Maintainer  :  capn.freako@gmail.com
-Stability   :  Experimental
+Stability   :  Development
 Portability :
 -}
 module Data.Newtypes.PrettyDouble (

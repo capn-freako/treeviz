@@ -1,12 +1,12 @@
 name: treeviz
-version: 0.0.8
+version: 1.0.0
 cabal-version: >=1.8
 build-type: Simple
 license: BSD3
 license-file: LICENSE
 copyright: Copyright (c) 2013 David Banas; all rights reserved World wide.
 maintainer: capn.freako@gmail.com
-stability: Experimental
+stability: Development
 homepage: http://www.haskell.org/haskellwiki/Treeviz
 synopsis: Visualization of computation decomposition trees.
 description: This Haskell package provides some tools for visualizing the decomposition
@@ -24,7 +24,7 @@ source-repository head
 source-repository this
     type: git
     location: git://github.com/capn-freako/treeviz.git
-    tag: v0.0.7
+    tag: v1.0
 
 library
     build-depends: QuickCheck -any, base >=2 && <5, containers -any,

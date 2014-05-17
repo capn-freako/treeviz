@@ -7,7 +7,7 @@
 -- License     :  AllRightsReserved
 --
 -- Maintainer  :  capn.freako@gmail.com
--- Stability   :  Experimental
+-- Stability   :  Development
 -- Portability :
 --
 -- |
