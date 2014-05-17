@@ -1,4 +1,5 @@
-{-# LANGUAGE CPP, TemplateHaskell, InstanceSigs #-}
+{-# LANGUAGE CPP, TemplateHaskell #-}
+
 -----------------------------------------------------------------------------
 --
 -- Module      :  Main
@@ -17,7 +18,7 @@ module Main (
     main
 ) where
 
-import Control.Monad (unless, forM_, liftM2)
+import Control.Monad (unless, forM_, liftM2, liftM)
 import Data.List (stripPrefix, elem)
 import Data.Complex
 import System.Exit (exitFailure)
@@ -103,23 +104,26 @@ tData5Values  = [3.000651293151413e-2 :+ 0.0,(-0.40689552869429835) :+ 0.0,(-7.6
 answer5 = [1.149 :+ 0.000, (-2.765) :+ 0.133, 0.713 :+ (-0.703), 0.998 :+ (-0.636), 1.198 :+ 0.000, 0.998 :+ 0.636, 0.713 :+ 0.703, (-2.765) :+ (-0.133)]
 tData6  = newTreeData [(2, DIT), (5, DIT)]
                       [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
-tData7  = newTreeData [(2, DIT), (2, DIT)]
-                      [1.0, 1.0, 1.0, 1.0]
-answer7 = [4.0, 0.0, 0.0, 0.0]
+tData7  = newTreeData [(2, DIF), (2, DIF)]
+                      [1.0, 0.0, 0.0, 0.0]
+answer7 = [1.0, 1.0, 1.0, 1.0]
 tData8  = newTreeData [(2, DIF), (2, DIF)]
                       [1.0, 1.0, 1.0, 1.0]
 answer8 = [4.0, 0.0, 0.0, 0.0]
 tData9  = newTreeData [(2, DIT), (2, DIF), (2, DIT)] [1.0, 1.0, -1.0, -1.0, 1.0, 1.0, -1.0, -1.0]
 answer9 = [0.0, 0.0, 4.0 :+ (-4.0), 0.0, 0.0, 0.0, 4.0 :+ 4.0, 0.0]
+tData10  = newTreeData [(2, DIT)]
+                       [1.0, 0.0]
+answer10 = [1.0, 1.0]
 
 -- Main
 exeMain = do
-    let tData  = tData3
-    let answer = answer3
+    let tData  = tData1
+    let answer = answer1
     let tree   = buildTree newFFTTree tData
     case tree of
       Left msg -> putStrLn msg
-      Right  _ -> do
+      Right  t -> do
         let res = getEval tree
         putStrLn $ "Result = \t\t" ++ show res
         if  answer == res
@@ -128,6 +132,12 @@ exeMain = do
         let (treePlot, legendPlot) = dotLogTree tree
         writeFile treeFileName   treePlot
         writeFile legendFileName legendPlot
+        let items = last $ levels t
+        putStrLn "Twiddles:"
+        forM_ items $ do
+          \(item, _, _, _) -> do
+            putStrLn $ (show (liftM fst item)) ++ ":"
+            putStrLn $ "\t" ++ (show (liftM snd item))
 
 -- Entry point for unit tests.
 testMain = do
