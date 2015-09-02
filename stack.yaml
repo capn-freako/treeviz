@@ -1,0 +1,16 @@
+flags: {}
+packages:
+- '.'
+- circat/
+- hermit/
+- hermit/examples/HIW13/second/plugin/
+- hermit/optimizations/pretty/hermit-pretty/
+- hermit-extras/
+- kure/
+- lambda-ccc/
+- netlist/netlist/
+- netlist/netlist-to-verilog/
+- netlist/netlist-to-vhdl/
+- netlist/verilog/
+extra-deps: []
+resolver: lts-2.22
