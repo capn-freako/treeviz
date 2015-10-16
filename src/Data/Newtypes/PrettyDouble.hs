@@ -29,7 +29,7 @@ and 'Eq' instances, in order to:
 -}
 newtype PrettyDouble = PrettyDouble {
     uglyDouble :: Double
-  } deriving (Num, Ord, Fractional, Floating, Real, RealFrac, RealFloat)
+  } deriving (Num, Ord, Fractional, Floating, Real, RealFrac, RealFloat, Enum)
 
 instance Show PrettyDouble where
     show = printf "%6.3g" . zeroThresh . uglyDouble

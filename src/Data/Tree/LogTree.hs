@@ -46,6 +46,7 @@ module Data.Tree.LogTree (
   , CompOp (..), CompNodeOutput, CompNode
   , DecimationType (..), Radix, DecompositionMode
   , newTreeData, buildMixedRadixTree
+  , getAllCompNodes
 ) where
 
 import Data.Complex
@@ -56,7 +57,7 @@ import Data.Newtypes.PrettyDouble (PrettyDouble(..))
 -- | Enumerates the possible computational operations performed by a computational node.
 data CompOp = Sum  -- ^ Node sums its inputs.
             | Prod -- ^ Node multiplies its inputs.
-    deriving (Eq)
+    deriving (Eq, Show)
 
 -- | Our computational node type; tuple members are:
 --
@@ -137,9 +138,15 @@ class (Show a, t ~ GenericLogTree a) => LogTree t a | t -> a where
     getTwiddleStrs :: t -> [[String]]
     getTwiddleStrs = map (map show) . getTwiddles
 
-    -- | Returns the complete list of computational nodes required,
-    --   in order to evaluate the tree.
+    -- | Returns the list of computational nodes required,
+    --   in order to combine a node's children.
     getCompNodes   :: t -> [CompNode a]
+
+-- | Returns the complete list of computational nodes required,
+--   in order to evaluate the tree.
+getAllCompNodes :: (t ~ GenericLogTree a, LogTree t a) => t -> [CompNode a]
+getAllCompNodes t = getCompNodes t
+                     ++ (concatMap getAllCompNodes (subForest t))
 
 -- This is the intended user interface for building trees.
 -- It uses the "newtype record syntax" trick of O'Sullivan et al., in

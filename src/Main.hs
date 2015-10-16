@@ -18,7 +18,7 @@ module Main (
     main
 ) where
 
-import Control.Monad (unless, forM_, liftM2, liftM)
+import Control.Monad (unless, forM, forM_, liftM2, liftM)
 import Data.List (stripPrefix, elem)
 import Data.Complex
 import System.Exit (exitFailure)
@@ -26,8 +26,9 @@ import System.Random (randoms, randomRs, getStdRandom)
 import Test.QuickCheck (choose, vectorOf, elements, collect)
 import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.All (quickCheckAll)
-import Data.Tree (drawTree, levels, flatten)
-import Data.Tree.LogTree (buildTree, newTreeData, DecompositionMode, Radix, DecimationType (..))
+import Data.Tree (drawTree, levels, flatten, subForest)
+--import Data.Tree.LogTree (buildTree, newTreeData, DecompositionMode, Radix, DecimationType (..))
+import Data.Tree.LogTree
 import Data.Tree.LogTreeUtil (dotLogTree, getLevels, getFlatten, getEval)
 import Data.Tree.LogTrees.FFTTree (FFTTree (..), newFFTTree)
 import Data.Newtypes.PrettyDouble (PrettyDouble (..))
@@ -118,31 +119,60 @@ answer10 = [1.0, 1.0]
 
 -- Main
 exeMain = do
+    -- Construct and verify the tree.
     let tData  = tData1
     let answer = answer1
     let tree   = buildTree newFFTTree tData
     case tree of
       Left msg -> putStrLn msg
       Right  t -> do
+        -- Calculate, print, and check the FFT of the input data.
         let res = getEval tree
         putStrLn $ "Result = \t\t" ++ show res
         if  answer == res
           then putStrLn "Pass."
           else putStrLn $ "Fail.\nAnswer = \t" ++ show answer
+        putStrLn ""
+
+        -- Draw the computation flow graph.
         let (treePlot, legendPlot) = dotLogTree tree
         writeFile treeFileName   treePlot
         writeFile legendFileName legendPlot
+
+        -- Print out twiddles.
         let items = last $ levels t
+        twiddles <- forM items $ do
+          \(item, _, _, _) -> do
+            return $ liftM snd item
+--        let twiddles = forM items $ \(item, _, _, _) -> liftM snd item
+--        twiddles <- map (\(item, _, _, _) -> liftM snd item) items
+        let trivial_twiddles = filter (== 1) twiddles
         putStrLn "Twiddles:"
         forM_ items $ do
           \(item, _, _, _) -> do
             putStrLn $ (show (liftM fst item)) ++ ":"
             putStrLn $ "\t" ++ (show (liftM snd item))
+        putStrLn ""
+
+        -- Print out the multiplication statistics.
+        let compNodes = getAllCompNodes t
+        let mults     = concat $ map snd $ concat compNodes
+        let trivial_mults = filter (== 1) mults
+        let non_trivial_mults = length twiddles - length trivial_twiddles + length mults - length trivial_mults
+        putStrLn $ "Total computational nodes: " ++ (show $ length compNodes)
+        putStrLn $ "Total multiplications: " ++ (show $ length mults)
+        putStrLn $ "Trivial multiplications: " ++ (show $ length trivial_mults)
+        putStrLn $ "Total twiddles: " ++ (show $ length twiddles)
+        putStrLn $ "Trivial twiddles: " ++ (show $ length trivial_twiddles)
+        putStrLn $ "Total non-trivial multiplications: " ++ (show non_trivial_mults)
 
 -- Entry point for unit tests.
 testMain = do
     allPass <- $quickCheckAll -- Run QuickCheck on all prop_ functions
     unless allPass exitFailure
+
+testMain2 = go "sum-t3" (sum :: RTree N3 Int -> Int)
+--main = go "FFTTree" (sum :: RTree N3 Int -> Int)
 
 -- This is a clunky, but portable, way to use the same Main module file
 -- for both an application and for unit tests.

@@ -91,6 +91,9 @@ instance LogTree FFTTree (Complex PrettyDouble) where
                 degree   | decimationType == DIF = fromIntegral radix
                          | otherwise = fromIntegral nodeLen
 
+--    getAllCompNodes t = getCompNodes t
+--                     ++ (concatMap getAllCompNodes (subForest t))
+
 -- | Returns a tree builder suitable for constructing Fast Fourier Transform
 --   (FFT) decomposition trees of arbitrary radices and either decimation
 --   style (i.e. - DIT or DIF).
