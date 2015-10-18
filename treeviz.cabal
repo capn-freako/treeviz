@@ -1,5 +1,5 @@
 name: treeviz
-version: 2.0.2
+version: 2.0.3
 cabal-version: >=1.8
 build-type: Simple
 license: BSD3
@@ -24,7 +24,7 @@ source-repository head
 source-repository this
     type: git
     location: git://github.com/capn-freako/treeviz.git
-    tag: v1.0.1
+    tag: v2.0.3
 
 library
     build-depends: QuickCheck -any, base >=2 && <5, containers -any,

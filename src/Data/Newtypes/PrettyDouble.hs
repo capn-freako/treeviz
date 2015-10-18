@@ -29,7 +29,7 @@ and 'Eq' instances, in order to:
 -}
 newtype PrettyDouble = PrettyDouble {
     uglyDouble :: Double
-  } deriving (Num, Ord, Fractional, Floating, Real, RealFrac, RealFloat, Enum)
+  } deriving (Ord, Fractional, Floating, Real, RealFrac, RealFloat, Enum)
 
 instance Show PrettyDouble where
     show = printf "%6.3g" . zeroThresh . uglyDouble
@@ -42,3 +42,12 @@ instance Eq PrettyDouble where
     z1' == z2' = abs (z1 - z2) < 1.0e-3
         where z1 = uglyDouble z1'
               z2 = uglyDouble z2'
+              
+instance Num PrettyDouble where
+    x + y         = PrettyDouble $ uglyDouble x + uglyDouble y
+    x - y         = PrettyDouble $ uglyDouble x - uglyDouble y
+    x * y         = PrettyDouble $ uglyDouble x * uglyDouble y
+    abs x         = PrettyDouble $ abs $ uglyDouble x
+    signum x      = PrettyDouble $ signum $ uglyDouble x
+    fromInteger n = PrettyDouble $ fromIntegral n
+
